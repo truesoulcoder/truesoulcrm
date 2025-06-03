@@ -1,7 +1,8 @@
 'use client';
 // External dependencies
 import { AlertTriangle, CheckCircle, Info, XCircle } from 'lucide-react';
-import { useState, useCallback } from 'react'; 
+import { useState, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid'; 
 
 import LeadUploader from '@/components/leads/LeadUploader';
 
@@ -21,7 +22,7 @@ const LeadsView: React.FC = () => {
   const [isProcessingLeads, setIsProcessingLeads] = useState<boolean>(false);
 
   const handleAddMessage = useCallback((type: AppMessage['type'], text: string) => {
-    const newMessage: AppMessage = { id: Date.now().toString(), type, text };
+    const newMessage: AppMessage = { id: uuidv4(), type, text };
     setMessages(prevMessages => {
       const updatedMessages = [...prevMessages, newMessage];
       // Keep only the last 5 messages
