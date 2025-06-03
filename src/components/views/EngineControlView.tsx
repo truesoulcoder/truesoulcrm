@@ -166,7 +166,10 @@ const EngineControlView: React.FC = (): JSX.Element => {
       const response = await fetch('/api/engine/test-email', { // Corrected API path
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ marketRegionNormalizedName: selectedTestMarketRegion }),
+        body: JSON.stringify({
+          marketRegionNormalizedName: selectedTestMarketRegion,
+          sendToLead: true,
+        }),
       });
 
       const result: TestEmailResponse = await response.json();
@@ -412,7 +415,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
                 )}
               </div>
               <button 
-                onClick={handleSendTestEmail} 
+                onClick={() => { void handleSendTestEmail(); }} 
                 disabled={isLoading || engineStatus === 'running' || engineStatus === 'starting' || engineStatus === 'stopping' || engineStatus === 'test_sending' || isLoadingMarketRegions || !selectedTestMarketRegion}
                 className="btn btn-warning btn-sm shadow-md hover:shadow-lg transition-shadow duration-150 ease-in-out flex items-center space-x-2 self-start"
               >
@@ -422,7 +425,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
             </div>
             <button 
               className="btn btn-success" 
-              onClick={handleStartClick}
+              onClick={() => { void handleStartClick(); }}
               disabled={(isLoading && engineStatus !== 'starting') || engineStatus === 'running' || !marketRegion.trim()}
             >
               {isLoading && engineStatus === 'starting' ? (
@@ -434,7 +437,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
             </button>
             <button 
               className="btn btn-error" 
-              onClick={handleStopClick}
+              onClick={() => { void handleStopClick(); }}
               disabled={(isLoading && engineStatus !== 'stopping') || engineStatus === 'idle' || engineStatus === 'stopped'}
             >
               {isLoading && engineStatus === 'stopping' ? (

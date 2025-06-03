@@ -5,9 +5,11 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { configure, renderString } from 'nunjucks';
 
+import { generateOfferDetails, OfferDetails } from '@/actions/offerCalculations';
 import { createAdminServerClient } from '@/lib/supabase/server';
-import { sendEmail, generateLoiPdf } from '@/services';
-
+import { sendEmail } from '@/services/gmailService';
+import { generateLoiPdf, PersonalizationData } from '@/services/pdfService';
+import { FineCutLead } from '@/types/leads';
 
 // Define a type for the log entry for cleaner code, matching email_log structure
 interface EmailLogEntry {
@@ -23,7 +25,7 @@ interface EmailLogEntry {
   email_error_message?: string | null;
   email_sent_at?: string | null; 
   campaign_id?: string;
-  campaign_run_id?: string;
+  campaign_run_id?: string; 
   created_at?: string; 
   is_converted_status_updated_by_webhook?: boolean | null;
   property_address?: string;
@@ -51,8 +53,7 @@ interface MarketSpecificLead {
   property_city?: string;
   property_state?: string;
   property_postal_code?: string;
-  property_zipcode?: string;
-  zip_code?: string;
+  // property_zipcode and zip_code are deprecated, use property_postal_code
   property_type?: string;
   baths?: number | string;
   beds?: number | string;
@@ -62,6 +63,7 @@ interface MarketSpecificLead {
   mls_curr_status?: string;
   mls_curr_days_on_market?: number | string;
   email_sent?: string | null;
+  // assessed_total is crucial for offer calculation
   [key: string]: any;
 }
 
@@ -225,6 +227,10 @@ export async function POST(request: NextRequest) {
     campaign_run_id = `run-${Date.now()}` 
   }: StartCampaignRequestBody = requestBody;
 
+  // Variables to hold the final response details
+  let responseData: any = { success: true, message: "Campaign processing initiated. Final status will be reflected upon completion." }; // Default response
+  let responseStatus: number = 200; // Default status
+
   if (!market_region || typeof market_region !== 'string') {
     return NextResponse.json(
       { success: false, error: 'market_region (string) is required.' },
@@ -243,6 +249,7 @@ export async function POST(request: NextRequest) {
   let successCount = 0;
   let failureCount = 0;
   const processingErrors: { lead_id: string, error: string }[] = [];
+  let leads: FineCutLead[] = []; // Declare leads here to be accessible in the final catch/finally
 
   try {
     // Check if campaign processing is enabled
@@ -269,7 +276,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Get leads to process based on the market region
-    // Note: We need to update this query to use the market-specific lead tables
     // Get the normalized name for the market region
     const { data: marketRegionData, error: marketRegionError } = await supabase
       .from('market_regions')
@@ -296,21 +302,24 @@ export async function POST(request: NextRequest) {
     const leadTableName = `${marketRegionNormalizedName}_fine_cut_leads`;
 
     // Query the market-specific lead table
-    const { data: leads, error: leadsError } = await supabase
+    const { data: fetchedLeadsData, error: leadsFetchError } = await supabase
       .from(leadTableName)
-      .select('*')
+      .select('*') // Consider selecting specific fields for FineCutLead if needed
       .is('email_sent', null)
       .neq('property_type', 'Vacant Land')
       .or('contact1_email_1.neq.null,contact2_email_1.neq.null,contact3_email_1.neq.null,mls_curr_list_agent_email.neq.null')
       .order('id', { ascending: true })
-      .limit(limit_per_run) as { data: MarketSpecificLead[] | null, error: any };
+      .limit(limit_per_run);
 
-    if (leadsError) {
-      console.error(`Error fetching leads from ${leadTableName}:`, leadsError);
-      return NextResponse.json(
-        { success: false, error: `Error fetching leads: ${leadsError.message}` },
-        { status: 500 }
-      );
+    if (leadsFetchError) {
+      console.error(`Error fetching leads from ${leadTableName}:`, leadsFetchError);
+      // Throw an error to be caught by the main campaign catch block
+      throw new Error(`Database error fetching leads: ${leadsFetchError.message}`);
+    }
+
+    if (fetchedLeadsData) {
+      // Assign to the outer-scoped 'leads' variable.
+      leads = fetchedLeadsData as FineCutLead[]; 
     }
 
     if (!leads || leads.length === 0) {
@@ -321,155 +330,81 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Load email template
-    const emailTemplatePath = path.join(templateDir, 'email_body_with_subject.html');
-    const emailTemplateContent = await fs.readFile(emailTemplatePath, 'utf8');
-
-    // Process each lead
+    // Simplified loop for diagnosis (TEMPORARY - will be replaced next)
+    console.log('Leads fetched. Entering simplified diagnostic loop. Leads count:', leads.length);
     for (const lead of leads) {
       attemptedCount++;
-      
       try {
-        // Get contact email - check multiple fields
-        const contactEmail = lead.contact1_email_1 || lead.contact2_email_1 || lead.contact3_email_1 || lead.mls_curr_list_agent_email;
-        
-        if (!contactEmail || !isValidEmail(contactEmail)) {
-          processingErrors.push({
-            lead_id: lead.id ? lead.id.toString() : 'unknown',
-            error: `Invalid or missing contact email for lead ID ${lead.id || 'unknown'}`
-          });
-          failureCount++;
-          continue;
+        console.log(`DIAG: Processing lead ID: ${lead.id}`);
+        // Simulate some work
+        if (Math.random() < 0.05) { // Simulate a rare error for some leads
+          throw new Error(`Simulated processing error for lead ${lead.id}`);
         }
-
-        // Get sender
-        const sender = await getNextSender(supabase);
-        
-        // Prepare personalization data
-        // Convert numeric values to strings to match PersonalizationData interface requirements
-        const personalizationData = {
-          // Only include string properties or convert to string
-          property_address: lead.property_address,
-          property_city: lead.property_city,
-          property_state: lead.property_state,
-          property_postal_code: lead.property_postal_code || lead.zip_code || lead.property_zipcode,
-          property_type: lead.property_type,
-          baths: lead.baths?.toString(),
-          beds: lead.beds?.toString(),
-          year_built: lead.year_built?.toString(),
-          square_footage: lead.square_footage?.toString(),
-          assessed_total: lead.assessed_total?.toString(),
-          mls_curr_status: lead.mls_curr_status,
-          mls_curr_days_on_market: lead.mls_curr_days_on_market?.toString(),
-          contact_name: lead.contact_name,
-          // Add other string properties as needed
-          sender_name: sender.name,
-          current_date: new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })
-        };
-
-        // Render email template
-        const renderedEmail = renderString(emailTemplateContent, personalizationData);
-        const [subject, body] = renderedEmail.split('<!--BODY-->');
-
-        // Log the initial attempt
-        const logId = await logInitialAttempt(supabase, {
-          original_lead_id: lead.id ? lead.id.toString() : '',
-          contact_name: lead.contact_name,
-          contact_email: contactEmail,
-          property_address: lead.property_address,
-          property_city: lead.property_city,
-          property_state: lead.property_state,
-          property_postal_code: lead.property_postal_code || lead.zip_code || lead.property_zipcode,
-          property_type: lead.property_type,
-          baths: lead.baths,
-          beds: lead.beds,
-          year_built: lead.year_built,
-          square_footage: lead.square_footage,
-          assessed_total: lead.assessed_total,
-          market_region,
-          mls_curr_status: lead.mls_curr_status,
-          mls_curr_days_on_market: lead.mls_curr_days_on_market,
-          sender_name: sender.name,
-          sender_email_used: sender.email,
-          email_subject_sent: subject.trim(),
-          email_body_preview_sent: `${body.substring(0, 100)}...`,
-          campaign_id,
-          campaign_run_id
-        });
-
-        // Generate PDF if needed
-        const pdfBuffer = await generateLoiPdf(personalizationData, lead.id ? lead.id.toString() : '', contactEmail);
-
-        // Send email
-        await sendEmail(
-          sender.email,
-          contactEmail,
-          subject.trim(),
-          body,
-          pdfBuffer ? [
-            {
-              filename: `Letter_of_Intent_${lead.property_address ? lead.property_address.replace(/[^a-zA-Z0-9]/g, '_') : lead.id}.pdf`,
-              content: pdfBuffer
-            }
-          ] : undefined
-        );
-
-        // Update email log status
-        await updateEmailLogStatus(supabase, logId!, 'SENT', new Date().toISOString());
-
-        // Update lead's email_sent status
-        const { error: updateError } = await supabase
-          .from(leadTableName)
-          .update({ email_sent: true })
-          .eq('id', lead.id);
-
-        if (updateError) {
-          console.error(`Error updating email_sent status for lead ID ${lead.id}:`, updateError);
-        }
-
-        // Increment sender sent count
-        await incrementSenderSentCount(supabase, sender.id);
-
         successCount++;
       } catch (error: any) {
         failureCount++;
         processingErrors.push({
-          lead_id: lead.id.toString(),
-          error: error.message || 'Unknown error during processing'
+          lead_id: lead.id ? lead.id.toString() : 'DIAG_UNKNOWN_ID',
+          error: `DIAG_ERROR: ${error.message}`
         });
-        console.error(`Error processing lead ID ${lead.id}:`, error);
+        console.error(`DIAG_ERROR processing lead ID ${lead.id}:`, error);
       }
-    }
-
-    return NextResponse.json({
-      success: true,
+    } // End of simplified for...of loop for leads
+    // Main campaign logic completed, now prepare response data
+    // This block is now outside the loop, but still within the main try block.
+    const overallSuccess = failureCount === 0 && processingErrors.every(e => e.lead_id !== 'CAMPAIGN_LEVEL_ERROR');
+    responseData = {
+      success: overallSuccess,
       message: `Campaign processing completed. Attempted: ${attemptedCount}, Success: ${successCount}, Failure: ${failureCount}`,
       data: {
         attemptedCount,
         successCount,
         failureCount,
-        processingErrors
-      }
+        processingErrors,
+      },
+    };
+    responseStatus = 200; // API call itself was successful, payload indicates operational success/failure
+  } catch (campaignLevelError: any) {
+    // This catch handles errors from the main campaign logic (e.g., DB errors, status checks)
+    console.error('Critical error during campaign processing run:', campaignLevelError);
+    // Update failureCount and processingErrors to reflect a campaign-wide failure
+    // If leads array was populated, count them as failures, otherwise it's a more general campaign setup error.
+    failureCount = leads.length > 0 ? leads.length : (attemptedCount > 0 ? attemptedCount : limit_per_run); 
+    processingErrors.push({ 
+      lead_id: 'CAMPAIGN_LEVEL_ERROR', 
+      error: `Critical campaign error: ${campaignLevelError.message || 'Unknown error'}` 
     });
-
-  } catch (error: any) {
-    console.error('Unexpected error in start-campaign handler:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error.message || 'An unknown error occurred.',
+      // Construct error response for campaign-level failure
+      responseData = {
+        success: false,
+        message: `Critical campaign error: ${campaignLevelError.message || 'Unknown error'}`,
         data: {
           attemptedCount,
           successCount,
-          failureCount,
-          processingErrors
-        }
-      },
-      { status: 500 }
-    );
-  }
+          failureCount, // This was updated just before
+          processingErrors, // This was updated just before
+        },
+        error: campaignLevelError.message || 'Unknown error',
+      };
+      responseStatus = 500; // Internal Server Error
+    // Do not return here; let the finally block handle the response.
+  } finally {
+    // This block ALWAYS executes for cleanup.
+    console.log(`Campaign run ${campaign_run_id} summary: Attempted: ${attemptedCount}, Succeeded: ${successCount}, Failed: ${failureCount}`);
+    // Response is now constructed in try/catch and returned after this finally block.
+  } // End of finally block
+
+  // Ensure responseData and responseStatus are declared and set in the try/catch blocks above.
+  // For example, declare near the start of the POST function:
+  // let responseData: any;
+  // let responseStatus: number = 200; // Default status
+  // Then, in the try block (on success):
+  //   responseData = { success: true, ... }; 
+  //   responseStatus = 200;
+  // And in the catch (campaignLevelError) block:
+  //   responseData = { success: false, error: campaignLevelError.message, ... }; 
+  //   responseStatus = 500;
+
+  // responseData and responseStatus are assigned in the try/catch blocks above.
+  return NextResponse.json(responseData, { status: responseStatus });
 }

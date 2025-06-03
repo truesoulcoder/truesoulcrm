@@ -2,14 +2,15 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+import { SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { configure as nunjucksConfigure } from 'nunjucks';
+import { configure, renderString as nunjucksRenderString } from 'nunjucks';
 
+import { generateOfferDetails, OfferDetails } from '@/actions/offerCalculations';
 import { createAdminServerClient } from '@/lib/supabase/server';
 import { sendEmail as sendGmail } from '@/services/gmailService';
-// Using relative path for pdfService as a workaround for @/ alias resolution issues.
-// Please check tsconfig.json paths configuration for @/services/*
-import { generateLoiPdf, PersonalizationData } from '../../../../services/pdfService';
+import { generateLoiPdf, PersonalizationData } from '@/services/pdfService';
+import { FineCutLead } from '@/types/leads';
 
 // Define SenderData interface
 interface SenderData {
@@ -24,7 +25,7 @@ interface SenderData {
 const templateDir = path.join(process.cwd(), 'src', 'app', 'api', 'engine', 'templates');
 // It's good practice to check if the directory exists, especially if dynamic
 // For now, assuming it exists or will be created.
-const nunjucksEnv = nunjucksConfigure(templateDir, { autoescape: true });
+const nunjucksEnv = configure(templateDir, { autoescape: true });
 
 // Hardcoded sender details (consider moving to a config or fetching dynamically)
 const TEST_SENDER_EMAIL = process.env.TEST_SENDER_EMAIL || 'chrisphillips@truesoulpartners.com';
@@ -127,35 +128,6 @@ const isValidEmail = (email: string): boolean => {
   return pattern.test(email);
 };
 
-
-// Define an interface for the expected lead structure
-interface FineCutLead {
-  id: number;
-  normalized_lead_id?: string | null;
-  contact_name?: string | null;
-  contact1_name?: string | null;
-  contact2_name?: string | null;
-  contact3_name?: string | null;
-  contact_email?: string | null;
-  contact1_email_1?: string | null;
-  contact2_email_1?: string | null;
-  contact3_email_1?: string | null;
-  property_address?: string | null;
-  property_city?: string | null;
-  property_state?: string | null;
-  property_postal_code?: string | null;
-  zip_code?: string | null; 
-  property_zipcode?: string | null; 
-  assessed_total?: number | null;
-  offer_price?: string | null; 
-  closing_date_preference?: string | null;
-  inspection_period?: string | null;
-  offer_expiration_date?: string | null;
-  current_date?: string | null; 
-  greeting_name?: string | null; 
-  [key: string]: any; 
-}
-
 export async function POST(request: NextRequest) {
   const supabase = await createAdminServerClient();
 
@@ -201,9 +173,9 @@ export async function POST(request: NextRequest) {
     const sender = senderData; // Keep variable name 'sender' for subsequent code
 
     if (senderError) {
-      console.error('Supabase error fetching sender:', senderError);
-      await logToSupabase({ email_status: 'ERROR_SYSTEM', email_error_message: `Error fetching active sender: ${senderError instanceof Error ? senderError.message : String(senderError)}` });
-      return NextResponse.json({ success: false, error: `Error fetching active sender: ${senderError instanceof Error ? senderError.message : String(senderError)}` }, { status: 500 });
+      console.error('Supabase error fetching sender:', (senderError as Error).message);
+      await logToSupabase({ email_status: 'ERROR_SYSTEM', email_error_message: `Error fetching active sender: ${(senderError as Error).message}` });
+      return NextResponse.json({ success: false, error: `Error fetching active sender: ${(senderError as Error).message}` }, { status: 500 });
     }
     if (!sender) {
       await logToSupabase({ email_status: 'ERROR_SYSTEM', email_error_message: 'No active sender found.' });
@@ -216,18 +188,25 @@ export async function POST(request: NextRequest) {
     // 2. Fetch Sample Lead
     let leadQueryBuilder = supabase
       .from(leadTableName)
-      .select('*'); // Apply generic for row type
+      .select('*');
 
     if (specificLeadIdToTest) {
       leadQueryBuilder = leadQueryBuilder.eq('id', specificLeadIdToTest);
+    } else {
+      // If no specific lead ID, fetch one that has a usable email
+      leadQueryBuilder = leadQueryBuilder.or(
+        `and(contact_email.is.not.null,contact_email.neq.'')`
+      );
+      // Order by ID to get a consistent lead if multiple match
+      leadQueryBuilder = leadQueryBuilder.order('id', { ascending: true });
     }
 
     const { data: lead, error: leadError } = await leadQueryBuilder.limit(1).maybeSingle<FineCutLead>();
 
     if (leadError) {
-      console.error(`Supabase error fetching lead from ${leadTableName}:`, leadError);
-      await logToSupabase({ email_status: 'ERROR_LEAD_FETCH', email_error_message: `Error fetching lead: ${leadError.message}`, market_region: marketRegionNormalizedName });
-      return NextResponse.json({ success: false, error: `Error fetching lead from ${leadTableName}: ${leadError instanceof Error ? leadError.message : String(leadError)}` }, { status: 500 });
+      console.error(`Supabase error fetching lead from ${leadTableName}:`, (leadError as Error).message);
+      await logToSupabase({ email_status: 'ERROR_LEAD_FETCH', email_error_message: `Error fetching lead: ${(leadError as Error).message}`, market_region: marketRegionNormalizedName });
+      return NextResponse.json({ success: false, error: `Error fetching lead from ${leadTableName}: ${(leadError as Error).message}` }, { status: 500 });
     }
     if (!lead) {
       const message = specificLeadIdToTest ? `No lead found with ID ${specificLeadIdToTest} in ${leadTableName}.` : `No lead found in ${leadTableName} for testing.`;
@@ -244,8 +223,14 @@ export async function POST(request: NextRequest) {
     }
 
     const leadIdForApiResponse = lead.id;
-    const intendedRecipientEmail = sendToLead && lead.contact_email && isValidEmail(lead.contact_email) ? lead.contact_email : TEST_RECIPIENT_EMAIL;
-    const recipientName = sendToLead ? lead.contact_name : "Test Recipient";
+    let actualLeadEmail: string | undefined | null = null;
+    // The check for !lead happens right after fetching, so lead is guaranteed to be defined here.
+    if (lead.contact_email && isValidEmail(lead.contact_email)) {
+      actualLeadEmail = lead.contact_email;
+    }
+
+    const intendedRecipientEmail = sendToLead && actualLeadEmail ? actualLeadEmail : TEST_RECIPIENT_EMAIL;
+    const recipientName = sendToLead ? lead.contact_name : "Test Recipient"; // If sendToLead, use lead's name for personalization.
 
 
     // 3. Validate Essential Lead Fields
@@ -267,11 +252,12 @@ export async function POST(request: NextRequest) {
         }
       }
     });
-    const { property_postal_code, zip_code, property_zipcode } = lead;
-    if ((!property_postal_code || String(property_postal_code).trim() === '') && 
-        (!zip_code || String(zip_code).trim() === '') && 
-        (!property_zipcode || String(property_zipcode).trim() === '')) {
-      missingFields.push('property_zip_code (source)');
+    const { property_postal_code, assessed_total } = lead;
+    if (!property_postal_code || String(property_postal_code).trim() === '') {
+      missingFields.push('property_postal_code');
+    }
+    if (assessed_total === null || typeof assessed_total === 'undefined' || assessed_total <= 0) {
+      missingFields.push('assessed_total (must be a positive number for offer calculation)');
     }
 
     if (missingFields.length > 0) {
@@ -280,47 +266,74 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: errorMessage, lead_id: leadIdForApiResponse, missing_fields: missingFields }, { status: 400 });
     }
 
-    // 4. Prepare Email Content using Nunjucks
+    // 4. Generate Offer Details & Prepare Email/PDF Context
+    if (lead.assessed_total === null || typeof lead.assessed_total === 'undefined') {
+      // This should ideally be caught by the missingFields check earlier, but as a safeguard:
+      return NextResponse.json({ success: false, error: 'assessed_total is missing or invalid for offer calculation.', lead_id: leadIdForApiResponse }, { status: 400 });
+    }
+    const offerDetails: OfferDetails = generateOfferDetails(lead.assessed_total, lead.contact_name);
+
+    const staticPdfFields = {
+      inspection_period: "7 days (excluding weekends and federal holidays)",
+      sender_title: "Acquisitions Specialist",
+      company_name: "True Soul Partners LLC",
+    };
+
     const templateContext = {
-      ...lead, // Spread all lead properties into the context
-      contact_name: recipientName, // Use the potentially overridden recipient name
+      // Lead specific fields (direct)
+      property_address: lead.property_address,
+      property_city: lead.property_city,
+      property_state: lead.property_state,
+      property_postal_code: lead.property_postal_code,
+      // Calculated offer details
+      ...offerDetails, // Includes offerPriceFormatted, emdAmountFormatted, closingDateFormatted, greetingName, offerExpirationDateFormatted, currentDateFormatted
+      // Sender details
       sender_name: activeSenderName,
-      sender_email: activeSenderEmail,
-      // Add any other dynamic data needed by templates
-      current_year: new Date().getFullYear(),
-      logo_cid: 'truesoul_logo_cid' // Content-ID for the inline logo
+      sender_email: activeSenderEmail, // For email template if needed, not typically in PDF LOI text
+      // Static PDF fields
+      ...staticPdfFields,
+      // Other dynamic data for templates
+      current_year: new Date().getFullYear(), // For email template if needed
+      logo_cid: 'company_logo_cid' // Content-ID for the inline logo in email
     };
 
     const emailSubject = nunjucksEnv.render('subject_template.njk', templateContext);
     const emailHtmlBody = nunjucksEnv.render('body_template.njk', templateContext);
 
-    // 5. Generate PDF (optional)
-    let pdfBuffer: Buffer | undefined = undefined;
+    // This section is now part of the refactored step 5 above.
+    // The original line was: "// 5. Generate PDF (optional)"
+    // The new content for PDF generation is integrated into the `personalizationData` mapping.
+    // The actual call to `generateLoiPdf` remains, but its data source is `personalizationData`.
+    let pdfBuffer: Buffer | null = null;
     if (sendPdf) {
       try {
         // Convert lead data to PersonalizationData format
+        // 5. Generate PDF (optional)
+        // PersonalizationData for PDF now uses the already prepared templateContext
         const personalizationData: PersonalizationData = {
-          property_address: lead.property_address || undefined,
-          property_city: lead.property_city || undefined,
-          property_state: lead.property_state || undefined,
-          property_postal_code: lead.property_postal_code || lead.zip_code || lead.property_zipcode || undefined,
-          current_date: lead.current_date || undefined,
-          greeting_name: lead.greeting_name || lead.contact_name || lead.contact1_name || undefined,
-          offer_price: lead.offer_price || undefined,
-          closing_date_preference: lead.closing_date_preference || undefined,
-          inspection_period: lead.inspection_period || undefined,
-          offer_expiration_date: lead.offer_expiration_date || undefined,
-          sender_name: activeSenderName || undefined,
-          contact_name: lead.contact_name || lead.contact1_name || undefined
+          property_address: templateContext.property_address ?? undefined,
+          property_city: templateContext.property_city ?? undefined,
+          property_state: templateContext.property_state ?? undefined,
+          property_postal_code: templateContext.property_postal_code ?? undefined,
+          current_date: templateContext.currentDateFormatted ?? undefined,
+          greeting_name: templateContext.greetingName ?? undefined,
+          offer_price: templateContext.offerPriceFormatted ?? undefined,
+          inspection_period: templateContext.inspection_period ?? undefined,
+          emd_amount: templateContext.emdAmountFormatted ?? undefined,
+          closing_date: templateContext.closingDateFormatted ?? undefined,
+          offer_expiration_date: templateContext.offerExpirationDateFormatted ?? undefined,
+          sender_name: templateContext.sender_name ?? undefined,
+          sender_title: templateContext.sender_title ?? undefined,
+          company_name: templateContext.company_name ?? undefined,
         };
         
         const leadId = specificLeadIdToTest || lead?.normalized_lead_id || 'unknown';
-        const contactEmail = lead?.contact_email || lead?.contact1_email_1 || 'unknown';
+        const contactEmail = lead?.contact_email || 'unknown'; // Only use contact_email
         pdfBuffer = await generateLoiPdf(personalizationData, leadId, contactEmail);
       } catch (pdfError) {
-        console.error('Error generating PDF:', pdfError);
-        await logToSupabase({ original_lead_id: specificLeadIdToTest || lead?.normalized_lead_id || 'N/A', property_address: lead?.property_address || 'N/A', email_status: 'ERROR_SYSTEM', email_error_message: `Error generating PDF: ${pdfError instanceof Error ? pdfError.message : String(pdfError)}`, campaign_id: null });
-        return NextResponse.json({ success: false, error: 'Failed to generate PDF.', lead_id: leadIdForApiResponse, details: pdfError instanceof Error ? pdfError.message : String(pdfError) }, { status: 500 });
+        console.error('Error generating PDF:', (pdfError as Error).message);
+        await logToSupabase({ original_lead_id: specificLeadIdToTest || lead?.normalized_lead_id || 'N/A', property_address: lead?.property_address || 'N/A', email_status: 'ERROR_SYSTEM', email_error_message: `PDF generation failed: ${(pdfError as Error).message}`, campaign_id: null });
+        return NextResponse.json({ success: false, error: 'Failed to generate PDF.', lead_id: leadIdForApiResponse, details: (pdfError as Error).message }, { status: 500 });
       }
     }
     
@@ -328,11 +341,11 @@ export async function POST(request: NextRequest) {
     let logoBuffer: Buffer | undefined;
     let logoContentType: string | undefined;
     try {
-        const logoPath = path.join(templateDir, 'assets', 'truesoulreportslogowtext.png'); // Adjust path as needed
+        const logoPath = path.join(templateDir, 'assets', 'logo.png'); // Adjust path as needed
         logoBuffer = await fs.readFile(logoPath);
         logoContentType = 'image/png'; // Or detect dynamically
     } catch (logoError) {
-        console.warn('Could not load inline logo:', logoError);
+        console.warn('Could not load inline logo:', (logoError as Error).message);
         // Continue without logo if it fails, or handle as critical error
     }
 
@@ -396,8 +409,8 @@ try {
   }
 
 } catch (emailError) {
-  console.error('Error sending email via gmailService:', emailError);
-  const errorMessage = emailError instanceof Error ? emailError.message : String(emailError);
+  console.error('Error sending email:', (emailError as Error).message);
+  const errorMessage = (emailError as Error).message;
   await logToSupabase({
     original_lead_id: lead.normalized_lead_id,
     contact_email: intendedRecipientEmail,
@@ -409,8 +422,8 @@ try {
 }
 
   } catch (error) {
-    console.error('Overall error in test-email handler:', error);
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    console.error('Overall error in test-email handler:', (error as Error).message);
+    const errorMessage = (error as Error).message;
     // Avoid logging again if it was already logged by a specific step's catch block
     // This is a general fallback.
     if (!(error instanceof Error && (error.message.includes("fetching active sender") || error.message.includes("fetching lead")))) {

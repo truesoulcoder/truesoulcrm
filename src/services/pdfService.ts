@@ -69,15 +69,17 @@ export interface PersonalizationData {
   property_city?: string;
   property_state?: string;
   property_postal_code?: string;
-  current_date?: string;
-  greeting_name?: string;
-  offer_price?: string;
-  closing_date_preference?: string;
-  inspection_period?: string;
-  offer_expiration_date?: string;
-  sender_name?: string;
-  contact_name?: string;
-  [key: string]: string | undefined;
+  current_date?: string; // Formatted: January 1, 2024
+  greeting_name?: string; // First name or default
+  offer_price?: string; // Formatted: $100,000.00
+  emd_amount?: string; // Formatted: $1,000.00
+  closing_date?: string; // Formatted: January 31, 2024 (current_date + 30 days)
+  sender_title?: string; // Static: "Acquisitions Specialist"
+  company_name?: string; // Static: "True Soul Partners LLC"
+  // greeting_name is derived (e.g., first name) from the lead's full contact_name.
+  // It's used for the salutation (e.g., "Dear John,").
+  // The full contact_name could be added as a separate field if needed elsewhere in the PDF.
+  [key: string]: string | undefined; // Keep for flexibility if other dynamic fields arise
 }
 
 export const generateLoiPdf = async (

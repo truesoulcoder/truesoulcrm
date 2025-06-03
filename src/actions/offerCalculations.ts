@@ -1,16 +1,10 @@
-// src/offerCalculations.ts
+// src/actions/offerCalculations.ts
 
-/**
- * Calculates the offer amount based on the wholesale value.
- * Offer Amount = Wholesale Value * 0.5
- * @param wholesaleValue - The wholesale value of the property.
- * @returns The calculated offer amount.
- */
-export function calculateOfferAmount(wholesaleValue: number): number {
-  if (wholesaleValue < 0) {
+export function calculateOfferAmount(assessedTotal: number): number {
+  if (assessedTotal < 0) {
     return 0;
   }
-  return wholesaleValue * 0.5;
+  return assessedTotal * 0.5;
 }
 
 /**
@@ -49,28 +43,56 @@ export function addBusinessDays(date: Date, businessDays: number): Date {
  * Calculates the closing date, which is 14 business days from today.
  * @returns A new Date object for the closing date.
  */
+/**
+ * Calculates the closing date, which is 30 calendar days from today.
+ * @returns A new Date object for the closing date.
+ */
 export function calculateClosingDate(): Date {
   const today = new Date();
-  return addBusinessDays(today, 14);
+  const closingDate = new Date(today);
+  closingDate.setDate(today.getDate() + 30);
+  return closingDate;
 }
 
 export interface OfferDetails {
-  offerAmount: number;
-  emdAmount: number;
-  closingDate: Date;
+  offerPriceFormatted: string;
+  emdAmountFormatted: string;
   closingDateFormatted: string;
+  greetingName: string;
+  offerExpirationDateFormatted: string;
+  currentDateFormatted: string;
 }
 
-export function generateOfferDetails(wholesaleValue: number): OfferDetails {
-  const offerAmount = calculateOfferAmount(wholesaleValue);
+export function generateOfferDetails(assessedTotal: number, contactFullName?: string | null): OfferDetails {
+  const offerAmount = calculateOfferAmount(assessedTotal);
   const emdAmount = calculateEMD(offerAmount);
-  const closingDate = calculateClosingDate();
-  const closingDateFormatted = closingDate.toLocaleDateString('en-CA');
+  
+  const today = new Date();
+  const closingDate = calculateClosingDate(); // Uses today implicitly
+  const offerExpirationDate = new Date(today);
+  offerExpirationDate.setDate(today.getDate() + 3); // 72 hours = 3 days
+
+  const greetingName = contactFullName ? contactFullName.split(' ')[0] : 'Valued Property Owner';
+
+  // Formatting options
+  const currencyFormatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const dateFormatter = (date: Date) => {
+    // Example: January 1, 2024. Adjust format as needed for PDF.
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
 
   return {
-    offerAmount,
-    emdAmount,
-    closingDate,
-    closingDateFormatted,
+    offerPriceFormatted: currencyFormatter.format(offerAmount),
+    emdAmountFormatted: currencyFormatter.format(emdAmount),
+    closingDateFormatted: dateFormatter(closingDate),
+    greetingName,
+    offerExpirationDateFormatted: dateFormatter(offerExpirationDate),
+    currentDateFormatted: dateFormatter(today),
   };
 }
