@@ -1,0 +1,47 @@
+/* Pig animation controller */
+.pig-container {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.pig-svg {
+  width: 100px;
+  height: 80px;
+}
+
+/* Animation controller for infinite loop */
+@keyframes animation-toggle {
+  0%, 45% { opacity: 0; }
+  50%, 95% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.pig-svg.draw {
+  animation: animation-toggle 5s infinite;
+}
+
+.pig-svg.erase {
+  animation: animation-toggle 5s infinite 5s;
+}
+
+/* Add the active class automatically based on animation state */
+.pig-svg.draw {
+  opacity: 0;
+}
+
+.pig-svg.draw.active {
+  opacity: 1;
+}
+
+.pig-svg.erase {
+  opacity: 0;
+}
+
+.pig-svg.erase.active {
+  opacity: 1;
+}

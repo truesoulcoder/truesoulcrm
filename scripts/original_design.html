@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real Estate CRM - HTML</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.11.1/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            background-color: hsl(var(--b2) / var(--tw-bg-opacity, 1)); /* DaisyUI base-200 */
+        }
+        /* Custom scrollbar for webkit browsers */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background-color: hsl(var(--b3) / var(--tw-bg-opacity, 1)); /* DaisyUI base-300 */
+            border-radius: 0.375rem; /* rounded-md */
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: hsl(var(--p) / var(--tw-bg-opacity, 1)); /* DaisyUI primary */
+            border-radius: 0.375rem; /* rounded-md */
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: hsl(var(--pf, var(--p)) / var(--tw-bg-opacity, 1)); /* DaisyUI primary-focus */
+        }
+        .page-content {
+            display: none; /* Hide all pages by default */
+        }
+        .page-content.active {
+            display: block; /* Show active page */
+        }
+        /* Ensure drawer content takes full height and enables scrolling */
+        .drawer-content {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        main {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        /* Lucide Icons (Inline SVG examples) */
+        .lucide {
+            width: 1em;
+            height: 1em;
+            stroke-width: 2;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+    </style>
+</head>
+<body class="font-sans antialiased">
+
+    <div class="drawer lg:drawer-open">
+        <input id="sidebar-drawer" type="checkbox" class="drawer-toggle" />
+        <div class="drawer-content flex flex-col">
+            <nav class="navbar bg-base-100 shadow-sm sticky top-0 z-20">
+                <div class="navbar-start">
+                    <label for="sidebar-drawer" class="btn btn-ghost btn-circle lg:hidden">
+                        <svg class="lucide" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </label>
+                    <div class="form-control hidden md:flex">
+                        <div class="input-group">
+                            <input type="text" placeholder="Search…" class="input input-bordered input-sm" />
+                            <button class="btn btn-square btn-sm">
+                                <svg class="lucide" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="navbar-center lg:hidden">
+                    {/* */}
+                </div>
+                <div class="navbar-end">
+                    <button id="theme-toggle-btn" class="btn btn-ghost btn-circle">
+                        <svg id="theme-icon-moon" class="lucide" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                        <svg id="theme-icon-sun" class="lucide hidden" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    </button>
+                    <div class="dropdown dropdown-end">
+                        <button tabindex="0" class="btn btn-ghost btn-circle">
+                            <div class="indicator">
+                                <svg class="lucide" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                                <span class="badge badge-xs badge-primary indicator-item">3</span>
+                            </div>
+                        </button>
+                        <div tabindex="0" class="mt-3 z-[1] card card-compact dropdown-content w-52 bg-base-100 shadow">
+                            <div class="card-body">
+                                <span class="font-bold text-lg">3 Notifications</span>
+                                <div class="text-info">You have new leads!</div>
+                                <div class="card-actions">
+                                    <button class="btn btn-primary btn-block btn-sm">View all</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dropdown dropdown-end ml-2">
+                        <button tabindex="0" class="btn btn-ghost btn-circle avatar">
+                            <div class="w-8 rounded-full ring ring-primary ring-offset-base-100 ring-offset-1">
+                                <img src="https://placehold.co/80x80/661AE6/FFFFFF?text=A" alt="User avatar" />
+                            </div>
+                        </button>
+                        <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                            <li><a class="nav-link" data-page="settings" data-tab="profile">Profile <span class="badge badge-info">New</span></a></li>
+                            <li><a class="nav-link" data-page="settings">Settings</a></li>
+                            <li><a>Logout</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-base-100">
+                <div id="dashboard-page" class="page-content active">
+                    <div class="space-y-6">
+                        <h1 class="text-3xl font-bold text-base-content">Dashboard</h1>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="stats-cards-container">
+                            </div>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="card bg-base-100 shadow-lg">
+                                <div class="card-body">
+                                    <h2 class="card-title">Email Performance (Last 7 Days)</h2>
+                                    <div class="text-center py-10 text-base-content/50">Chart Placeholder (e.g., Recharts integration needed)</div>
+                                </div>
+                            </div>
+                            <div class="card bg-base-100 shadow-lg">
+                                <div class="card-body">
+                                    <h2 class="card-title">Lead Sources</h2>
+                                    <div class="text-center py-10 text-base-content/50">Chart Placeholder</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card bg-base-100 shadow-lg">
+                            <div class="card-body">
+                                <h2 class="card-title">Recent Activity / Alerts</h2>
+                                <ul class="space-y-2" id="recent-activity-container">
+                                    </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="leads-page" class="page-content">
+                    <div class="space-y-6">
+                        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <h1 class="text-3xl font-bold text-base-content">Lead Management</h1>
+                            <button id="add-new-lead-btn" class="btn btn-primary btn-md">
+                                <svg class="lucide mr-2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                                Add New Lead
+                            </button>
+                        </div>
+                        <div class="card bg-base-100 shadow-md">
+                            <div class="card-body p-4 flex flex-col md:flex-row gap-4 items-center">
+                                <div class="form-control flex-grow w-full md:w-auto">
+                                    <div class="input-group">
+                                        <input id="lead-search-term" type="text" placeholder="Search by name, email, address..." class="input input-bordered w-full" />
+                                        <button class="btn btn-square btn-ghost">
+                                            <svg class="lucide" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-control w-full md:w-auto">
+                                    <select id="lead-filter-market" class="select select-bordered w-full md:w-auto">
+                                        <option value="">All Markets</option>
+                                    </select>
+                                </div>
+                                <div class="form-control w-full md:w-auto">
+                                    <select id="lead-filter-status" class="select select-bordered w-full md:w-auto">
+                                        <option value="">All Statuses</option>
+                                    </select>
+                                </div>
+                                <button id="clear-lead-filters-btn" class="btn btn-ghost">
+                                     <svg class="lucide mr-1" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                                    Clear Filters
+                                </button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto bg-base-100 rounded-lg shadow-md">
+                            <table class="table table-zebra w-full">
+                                <thead>
+                                    <tr>
+                                        <th data-sortkey="owner_name" class="cursor-pointer select-none">Owner Name <span class="sort-icon"></span></th>
+                                        <th data-sortkey="property_address" class="cursor-pointer select-none">Property Address <span class="sort-icon"></span></th>
+                                        <th data-sortkey="regional_market" class="cursor-pointer select-none">Market <span class="sort-icon"></span></th>
+                                        <th data-sortkey="status" class="cursor-pointer select-none">Status <span class="sort-icon"></span></th>
+                                        <th data-sortkey="last_contacted_at" class="cursor-pointer select-none">Last Contacted <span class="sort-icon"></span></th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leads-table-body">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="templates-page" class="page-content">
+                     <div class="space-y-6">
+                        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <h1 class="text-3xl font-bold text-base-content">Email Templates</h1>
+                            <button id="add-new-template-btn" class="btn btn-primary btn-md">
+                                <svg class="lucide mr-2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                                Create New Template
+                            </button>
+                        </div>
+                        <div class="form-control">
+                            <div class="input-group">
+                                <input id="template-search-term" type="text" placeholder="Search templates..." class="input input-bordered w-full max-w-xs" />
+                                <button class="btn btn-square btn-ghost">
+                                     <svg class="lucide" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="templates-grid-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            </div>
+                    </div>
+                </div>
+
+                <div id="accounts-page" class="page-content">
+                    <div class="space-y-6">
+                        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <h1 class="text-3xl font-bold text-base-content">Employee Gmail Accounts</h1>
+                            <button id="link-new-gmail-account-btn" class="btn btn-primary btn-md">
+                                <svg class="lucide mr-2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                                Link New Gmail Account
+                            </button>
+                        </div>
+                        <div class="alert alert-info shadow-lg">
+                            <div>
+                                <svg class="lucide" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
+                                <span>Link employee Gmail accounts to enable automated email sending for campaigns. Ensure employees have consented.</span>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto bg-base-100 rounded-lg shadow-md">
+                            <table class="table w-full">
+                                <thead>
+                                    <tr>
+                                        <th>Employee Name</th>
+                                        <th>Gmail Address</th>
+                                        <th>Status</th>
+                                        <th>Last Authorized</th>
+                                        <th>Active for Campaigns</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="accounts-table-body">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="campaigns-page" class="page-content">
+                    <div class="space-y-6">
+                        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <h1 class="text-3xl font-bold text-base-content">Campaign Management</h1>
+                            <button id="add-new-campaign-btn" class="btn btn-primary btn-md">
+                                <svg class="lucide mr-2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                                Create New Campaign
+                            </button>
+                        </div>
+                        <div class="card bg-base-100 shadow-md">
+                             <div class="card-body p-4 flex flex-col md:flex-row gap-4 items-center">
+                                <div class="form-control flex-grow w-full md:w-auto">
+                                    <div class="input-group">
+                                        <input id="campaign-search-term" type="text" placeholder="Search campaigns..." class="input input-bordered w-full" />
+                                         <button class="btn btn-square btn-ghost"><svg class="lucide" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></button>
+                                    </div>
+                                </div>
+                                <div class="form-control w-full md:w-auto">
+                                    <select id="campaign-filter-status" class="select select-bordered w-full md:w-auto">
+                                        <option value="all">All Statuses</option>
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                    </select>
+                                </div>
+                                <button id="clear-campaign-filters-btn" class="btn btn-ghost">
+                                    <svg class="lucide mr-1" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                                    Clear Filters
+                                </button>
+                            </div>
+                        </div>
+                        <div id="campaigns-list-container" class="space-y-4">
+                            </div>
+                    </div>
+                </div>
+
+                <div id="settings-page" class="page-content">
+                    <div class="space-y-6">
+                        <h1 class="text-3xl font-bold text-base-content">Settings</h1>
+                        <div class="card bg-base-100 shadow-lg">
+                            <div class="card-body p-0 md:p-2">
+                                <div class="flex flex-col md:flex-row">
+                                    <ul id="settings-tabs-nav" class="menu menu-vertical md:menu-horizontal bg-base-200 md:bg-transparent rounded-box md:rounded-none p-2 md:p-0 md:w-1/4 mb-4 md:mb-0 md:mr-6">
+                                        </ul>
+                                    <div id="settings-tabs-content" class="flex-1 p-4 md:p-0">
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+
+        <aside class="drawer-side z-30">
+            <label for="sidebar-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+            <div class="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col">
+                <div class="flex items-center mb-8">
+                     <svg class="lucide text-primary mr-2" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path><rect x="2" y="12" width="6" height="8" rx="1"></rect><rect x="16" y="12" width="6" height="8" rx="1"></rect></svg>
+                    <h1 class="text-2xl font-bold text-primary">CRM Pro</h1>
+                </div>
+                <ul id="sidebar-menu" class="menu space-y-2 flex-1">
+                    </ul>
+                <div class="mt-auto">
+                    <p class="text-xs text-center text-base-content/70">
+                        © <span id="current-year"></span> Your Company
+                    </p>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <div id="modals-container">
+        <dialog id="lead-modal" class="modal">
+            <div class="modal-box w-11/12 max-w-2xl">
+                <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+                </form>
+                <h3 id="lead-modal-title" class="font-bold text-lg mb-4">Add New Lead</h3>
+                <form id="lead-form" class="space-y-3">
+                    <input type="hidden" id="lead-id" name="id">
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Owner Name</span></label>
+                        <input type="text" id="lead-owner_name" name="owner_name" placeholder="John Doe" class="input input-bordered" required/>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Owner Email</span></label>
+                        <input type="email" id="lead-owner_email" name="owner_email" placeholder="owner@example.com" class="input input-bordered" required/>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Property Address</span></label>
+                        <input type="text" id="lead-property_address" name="property_address" placeholder="123 Main St, City, State ZIP" class="input input-bordered" required/>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Regional Market</span></label>
+                        <select id="lead-regional_market" name="regional_market" class="select select-bordered" required></select>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Phone (Optional)</span></label>
+                        <input type="tel" id="lead-phone" name="phone" placeholder="555-123-4567" class="input input-bordered" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Status</span></label>
+                        <select id="lead-status" name="status" class="select select-bordered" required></select>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Notes (Optional)</span></label>
+                        <textarea id="lead-notes" name="notes" class="textarea textarea-bordered h-24" placeholder="Any relevant notes..."></textarea>
+                    </div>
+                    <div class="modal-action mt-6">
+                        <button type="submit" class="btn btn-primary">Save Lead</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('lead-modal').close()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+
+        <dialog id="template-modal" class="modal">
+            <div class="modal-box w-11/12 max-w-3xl">
+                 <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+                </form>
+                <h3 id="template-modal-title" class="font-bold text-xl mb-4">Create New Template</h3>
+                <form id="template-form" class="space-y-3">
+                    <input type="hidden" id="template-id" name="id">
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Template Name</span></label>
+                        <input type="text" id="template-name" name="name" placeholder="e.g., Initial Outreach Cold Lead" class="input input-bordered" required />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Email Subject</span></label>
+                        <input type="text" id="template-subject" name="subject" placeholder="Regarding your property at {{property_address}}" class="input input-bordered" required />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Email Body (HTML)</span></label>
+                        <textarea id="template-body_html_full" name="body_html_full" class="textarea textarea-bordered h-64 font-mono text-sm" placeholder="<p>Hi {{owner_name}},</p>..." required></textarea>
+                        <label class="label"><span class="label-text-alt">Common placeholders: {{owner_name}}, {{property_address}}, {{offer_amount}}</span></label>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text">Placeholders (comma-separated)</span></label>
+                        <input type="text" id="template-placeholders" name="placeholders" placeholder="{{owner_name}}, {{property_address}}" class="input input-bordered" />
+                    </div>
+                    <div class="modal-action mt-6">
+                        <button type="submit" class="btn btn-primary">Save Template</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('template-modal').close()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+
+        <dialog id="template-preview-modal" class="modal">
+            <div class="modal-box w-11/12 max-w-3xl">
+                <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+                </form>
+                <h3 id="template-preview-modal-title" class="font-bold text-xl mb-4">Preview Template</h3>
+                <p class="text-sm mb-1"><span class="font-semibold">Subject:</span> <span id="preview-subject"></span></p>
+                <div class="divider my-1"></div>
+                <div id="preview-body" class="prose max-w-none p-4 border border-base-300 rounded-md bg-base-200/30 min-h-[200px]"></div>
+                <div class="modal-action mt-6">
+                    <button type="button" class="btn btn-primary" onclick="document.getElementById('template-preview-modal').close()">Close Preview</button>
+                </div>
+            </div>
+        </dialog>
+
+        <dialog id="campaign-modal" class="modal">
+            <div class="modal-box w-11/12 max-w-4xl">
+                <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+                </form>
+                <h3 id="campaign-modal-title" class="font-bold text-xl mb-6">Create New Campaign</h3>
+                <form id="campaign-form" class="space-y-4">
+                    <input type="hidden" id="campaign-id" name="id">
+                    <div>
+                        <label class="label"><span class="label-text">Campaign Name</span></label>
+                        <input type="text" id="campaign-name" name="name" placeholder="e.g., Q3 Dallas Outreach" class="input input-bordered w-full" required />
+                    </div>
+                    <div>
+                        <label class="label"><span class="label-text">Description</span></label>
+                        <textarea id="campaign-description" name="description" placeholder="Brief description..." class="textarea textarea-bordered w-full h-24"></textarea>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="label"><span class="label-text">Target Market</span></label>
+                            <select id="campaign-target_market" name="target_market" class="select select-bordered w-full"></select>
+                        </div>
+                        <div>
+                            <label class="label"><span class="label-text">Lead Status to Enroll</span></label>
+                            <select id="campaign-lead_status_trigger" name="lead_status_trigger" class="select select-bordered w-full"></select>
+                        </div>
+                    </div>
+                    <div class="divider">Campaign Steps</div>
+                    <div id="campaign-steps-container" class="space-y-3 max-h-60 overflow-y-auto p-1">
+                        </div>
+                    <button type="button" id="add-campaign-step-btn" class="btn btn-sm btn-outline btn-accent w-full">
+                        <svg class="lucide mr-1" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                        Add Step
+                    </button>
+                    <div class="modal-action mt-8">
+                        <button type="submit" class="btn btn-primary">Save Campaign</button>
+                        <button type="button" class="btn btn-ghost" onclick="document.getElementById('campaign-modal').close()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    </div>
+
+
+    <script>
+        // --- Global Variables & Mock Data ---
+        const initialTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', initialTheme);
+        if (initialTheme === 'dark') {
+            document.getElementById('theme-icon-moon').classList.add('hidden');
+            document.getElementById('theme-icon-sun').classList.remove('hidden');
+        }
+
+        let mockLeadsData = [
+            { id: '1', owner_name: 'Alice Wonderland', owner_email: 'alice.w@example.com', property_address: '123 Main St, Dallas, TX 75201', regional_market: 'Dallas', status: 'new', last_contacted_at: new Date(2024, 4, 1).toISOString(), created_at: new Date(2024, 3, 15).toISOString(), phone: '555-123-4567', notes: 'Interested in selling quickly.' },
+            { id: '2', owner_name: 'Bob The Builder', owner_email: 'bob.b@example.com', property_address: '456 Oak Ave, Houston, TX 77002', regional_market: 'Houston', status: 'contacted_step1', last_contacted_at: new Date(2024, 4, 5).toISOString(), created_at: new Date(2024, 3, 20).toISOString(), phone: '555-987-6543', notes: '' },
+            { id: '3', owner_name: 'Charlie Brown', owner_email: 'charlie.b@example.com', property_address: '789 Pine Ln, Austin, TX 78701', regional_market: 'Austin', status: 'offer_sent', last_contacted_at: new Date(2024, 4, 10).toISOString(), created_at: new Date(2024, 4, 1).toISOString(), notes: 'Negotiating offer.' },
+            { id: '4', owner_name: 'Diana Prince', owner_email: 'diana.p@example.com', property_address: '101 Justice Way, San Antonio, TX 78205', regional_market: 'San Antonio', status: 'responded', last_contacted_at: new Date(2024, 4, 12).toISOString(), created_at: new Date(2024, 4, 2).toISOString(), phone: '555-111-2222', notes: 'Wants to discuss terms.' },
+            { id: '5', owner_name: 'Edward Nygma', owner_email: 'ed.n@example.com', property_address: '202 Riddle Rd, Dallas, TX 75202', regional_market: 'Dallas', status: 'not_interested', last_contacted_at: new Date(2024, 4, 3).toISOString(), created_at: new Date(2024, 3, 28).toISOString(), phone: '', notes: 'Not selling at this time.' },
+        ];
+
+        let mockTemplatesData = [
+            { id: 'tpl_001', name: 'Initial Outreach - Dallas', subject: 'Regarding your property at {{property_address}}', body_html_snippet: 'Hi {{owner_name}}, I came across your property...', body_html_full: '<p>Hi {{owner_name}},</p><p>I came across your property at {{property_address}} and wanted to reach out. We are local investors looking for properties in the Dallas area. Would you be open to a quick chat about a potential cash offer?</p><p>Best,<br/>Your Name</p>', placeholders: ['{{owner_name}}', '{{property_address}}'], created_at: new Date(2024, 3, 10).toISOString(), updated_at: new Date(2024, 3, 12).toISOString() },
+            { id: 'tpl_002', name: 'Follow-up Offer', subject: 'Following up: Cash Offer for {{property_address}}', body_html_snippet: 'Dear {{owner_name}}, Following up on our previous conversation...', body_html_full: '<p>Dear {{owner_name}},</p><p>Following up on our previous conversation, we have prepared a cash offer for your property at {{property_address}}. Our offer is {{offer_amount}}. Please find more details attached or <a href="{{offer_link}}">click here</a>.</p><p>Regards,<br/>Your Name</p>', placeholders: ['{{owner_name}}', '{{property_address}}', '{{offer_amount}}', '{{offer_link}}'], created_at: new Date(2024, 3, 15).toISOString(), updated_at: new Date(2024, 3, 15).toISOString() },
+        ];
+        
+        let mockAccountsData = [
+            { id: 'acc_001', employee_name: 'John Doe (Sales)', gmail_address: 'john.sales@yourcompany.com', last_authorized_at: new Date(2024, 4, 1).toISOString(), is_active: true, status_message: 'Ready - Last email sent 2h ago' },
+            { id: 'acc_002', employee_name: 'Jane Smith (Marketing)', gmail_address: 'jane.marketing@yourcompany.com', last_authorized_at: new Date(2024, 3, 15).toISOString(), is_active: false, status_message: 'Inactive - Needs re-authorization' },
+        ];
+
+        let mockCampaignsData = [
+            { id: 'camp_001', name: 'Dallas Q2 Wholesale Outreach', description: 'Initial contact and follow-up for new wholesale leads in Dallas.', target_market: 'Dallas', lead_status_trigger: 'new', is_active: true, created_at: new Date(2024, 3, 20).toISOString(), total_leads_enrolled: 150, emails_sent: 280, reply_rate: 5.5, steps: [ { id: 's1', step_number: 1, template_name: 'Initial Outreach - Dallas', template_id: 'tpl_001', delay_days: 0, sending_account_name: 'john.sales@yourcompany.com', sending_account_id: 'acc_001' }, { id: 's2', step_number: 2, template_name: 'Follow-up Offer', template_id: 'tpl_002', delay_days: 3, sending_account_name: 'john.sales@yourcompany.com', sending_account_id: 'acc_001' } ] },
+            { id: 'camp_002', name: 'Houston Hot Leads Follow-up', description: 'Aggressive follow-up for leads marked as responsive in Houston.', target_market: 'Houston', lead_status_trigger: 'responded', is_active: false, created_at: new Date(2024, 4, 1).toISOString(), total_leads_enrolled: 35, emails_sent: 60, reply_rate: 12.0, steps: [ { id: 's3', step_number: 1, template_name: 'Gentle Nudge - Houston', template_id: 'tpl_003_houston', delay_days: 1, sending_account_name: 'jane.marketing@yourcompany.com', sending_account_id: 'acc_002' } ] },
+        ];
+
+        const leadStatuses = ['new', 'contacted_step1', 'contacted_step2', 'offer_sent', 'responded', 'not_interested', 'deal_closed'];
+        const regionalMarkets = Array.from(new Set(mockLeadsData.map(lead => lead.regional_market)));
+        const campaignMarkets = ['All Markets', ...regionalMarkets];
+        const campaignLeadStatusTriggers = ['new', 'contacted_step1', 'responded']; // Example
+
+        // --- Sidebar Menu & Navigation ---
+        const menuItems = [
+            { page: 'dashboard', icon: '<svg class="lucide" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>', label: 'Dashboard' },
+            { page: 'leads', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>', label: 'Lead Management' },
+            { page: 'campaigns', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M22 2L11 13"></path><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>', label: 'Campaigns' },
+            { page: 'templates', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>', label: 'Templates' },
+            { page: 'accounts', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6M23 11h-6"></path></svg>', label: 'User Accounts' },
+            { page: 'settings', icon: '<svg class="lucide" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>', label: 'Settings' },
+        ];
+
+        const sidebarMenu = document.getElementById('sidebar-menu');
+        menuItems.forEach(item => {
+            const li = document.createElement('li');
+            li.innerHTML = `<a href="#" class="nav-link flex items-center p-2 rounded-lg hover:bg-primary hover:text-primary-content transition-colors duration-200 text-base-content" data-page="${item.page}">${item.icon} <span class="ml-3">${item.label}</span></a>`;
+            sidebarMenu.appendChild(li);
+        });
+        
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+
+        function navigateToPage(pageId, targetTab = null) {
+            document.querySelectorAll('.page-content').forEach(page => page.classList.remove('active'));
+            const targetPage = document.getElementById(`${pageId}-page`);
+            if (targetPage) {
+                targetPage.classList.add('active');
+            } else {
+                document.getElementById('dashboard-page').classList.add('active'); // Fallback
+            }
+
+            // Update active link in sidebar
+            document.querySelectorAll('#sidebar-menu .nav-link').forEach(link => {
+                link.classList.remove('bg-primary', 'text-primary-content', 'font-semibold');
+                if (link.dataset.page === pageId) {
+                    link.classList.add('bg-primary', 'text-primary-content', 'font-semibold');
+                }
+            });
+            
+            // Close sidebar on mobile after navigation
+            const drawerToggle = document.getElementById('sidebar-drawer');
+            if (window.innerWidth < 1024 && drawerToggle.checked) { // lg breakpoint
+                drawerToggle.checked = false;
+            }
+
+            // Handle settings tab navigation
+            if (pageId === 'settings' && targetTab) {
+                navigateToSettingsTab(targetTab);
+            }
+        }
+
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const pageId = e.currentTarget.dataset.page;
+                const targetTab = e.currentTarget.dataset.tab;
+                navigateToPage(pageId, targetTab);
+            });
+        });
+        
+        // --- Theme Toggle ---
+        const themeToggleBtn = document.getElementById('theme-toggle-btn');
+        const moonIcon = document.getElementById('theme-icon-moon');
+        const sunIcon = document.getElementById('theme-icon-sun');
+
+        themeToggleBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            moonIcon.classList.toggle('hidden', newTheme === 'dark');
+            sunIcon.classList.toggle('hidden', newTheme === 'light');
+        });
+
+        // --- Date Formatting Helper ---
+        function formatDate(isoString) {
+            if (!isoString) return 'N/A';
+            try {
+                return new Date(isoString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        }
+        
+        // --- Dashboard Page Logic ---
+        function renderDashboard() {
+            const stats = [
+                { title: 'Total Leads', value: mockLeadsData.length, icon: '<svg class="lucide text-info" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>', trend: '+5%', trendColor: 'text-success' },
+                { title: 'Active Campaigns', value: mockCampaignsData.filter(c => c.is_active).length, icon: '<svg class="lucide text-success" viewBox="0 0 24 24"><path d="M22 2L11 13"></path><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>', trend: '+1', trendColor: 'text-success' },
+                { title: 'Templates', value: mockTemplatesData.length, icon: '<svg class="lucide text-warning" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>', trend: '', trendColor: '' },
+                { title: 'Linked Accounts', value: mockAccountsData.length, icon: '<svg class="lucide text-primary" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6M23 11h-6"></path></svg>', trend: '', trendColor: '' },
+            ];
+            const statsContainer = document.getElementById('stats-cards-container');
+            statsContainer.innerHTML = stats.map(stat => `
+                <div class="card bg-base-100 shadow-lg">
+                    <div class="card-body">
+                        <div class="flex items-center justify-between">
+                            <p class="text-base-content/70 font-medium">${stat.title}</p>
+                            ${stat.icon}
+                        </div>
+                        <h2 class="card-title text-3xl font-bold">${stat.value}</h2>
+                        ${stat.trend ? `<div class="flex items-center text-sm ${stat.trendColor}">
+                            ${stat.trend.startsWith('+') ? '<svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>' : '<svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>'}
+                            ${stat.trend}
+                        </div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            const recentActivity = [
+                { icon: '<svg class="lucide text-warning mr-2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>', text: 'Campaign "Spring Promo" needs attention: Low open rate.' },
+                { icon: '<svg class="lucide text-success mr-2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>', text: `New lead: ${mockLeadsData[0]?.owner_name || 'John Doe'} (${mockLeadsData[0]?.regional_market || 'Dallas Market'})` },
+                { icon: '<svg class="lucide text-info mr-2" viewBox="0 0 24 24"><path d="M22 2L11 13"></path><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>', text: `Email batch sent for "${mockCampaignsData[0]?.name || 'Houston Q2 Outreach'}" campaign.` },
+            ];
+            const activityContainer = document.getElementById('recent-activity-container');
+            activityContainer.innerHTML = recentActivity.map(item => `
+                <li class="flex items-center p-2 rounded-md hover:bg-base-200">
+                    ${item.icon}
+                    <span>${item.text}</span>
+                </li>
+            `).join('');
+        }
+
+        // --- Leads Page Logic ---
+        const leadsTableBody = document.getElementById('leads-table-body');
+        const leadSearchInput = document.getElementById('lead-search-term');
+        const leadMarketFilter = document.getElementById('lead-filter-market');
+        const leadStatusFilter = document.getElementById('lead-filter-status');
+        const leadModal = document.getElementById('lead-modal');
+        const leadForm = document.getElementById('lead-form');
+        const leadModalTitle = document.getElementById('lead-modal-title');
+        let currentLeadSortConfig = null;
+
+        function populateLeadFilterDropdowns() {
+            regionalMarkets.forEach(market => {
+                const option = document.createElement('option');
+                option.value = market;
+                option.textContent = market;
+                leadMarketFilter.appendChild(option);
+            });
+            leadStatuses.forEach(status => {
+                const option = document.createElement('option');
+                option.value = status;
+                option.textContent = status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                leadStatusFilter.appendChild(option);
+                // Also populate modal status dropdown
+                document.getElementById('lead-status').appendChild(option.cloneNode(true));
+            });
+             regionalMarkets.forEach(market => { // Populate modal market dropdown
+                const option = document.createElement('option');
+                option.value = market;
+                option.textContent = market;
+                document.getElementById('lead-regional_market').appendChild(option.cloneNode(true));
+            });
+        }
+
+        function renderLeadsTable(leadsToRender = mockLeadsData) {
+            let filteredLeads = leadsToRender;
+            const searchTerm = leadSearchInput.value.toLowerCase();
+            const market = leadMarketFilter.value;
+            const status = leadStatusFilter.value;
+
+            filteredLeads = filteredLeads.filter(lead =>
+                (lead.owner_name.toLowerCase().includes(searchTerm) ||
+                 lead.owner_email.toLowerCase().includes(searchTerm) ||
+                 lead.property_address.toLowerCase().includes(searchTerm)) &&
+                (market ? lead.regional_market === market : true) &&
+                (status ? lead.status === status : true)
+            );
+
+            if (currentLeadSortConfig) {
+                filteredLeads.sort((a, b) => {
+                    if (a[currentLeadSortConfig.key] < b[currentLeadSortConfig.key]) {
+                        return currentLeadSortConfig.direction === 'ascending' ? -1 : 1;
+                    }
+                    if (a[currentLeadSortConfig.key] > b[currentLeadSortConfig.key]) {
+                        return currentLeadSortConfig.direction === 'ascending' ? 1 : -1;
+                    }
+                    return 0;
+                });
+            }
+            
+            leadsTableBody.innerHTML = filteredLeads.map(lead => `
+                <tr class="hover">
+                    <td>
+                        <div class="font-bold">${lead.owner_name}</div>
+                        <div class="text-sm opacity-70 flex items-center"><svg class="lucide mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>${lead.owner_email}</div>
+                        ${lead.phone ? `<div class="text-sm opacity-70 flex items-center"><svg class="lucide mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>${lead.phone}</div>` : ''}
+                    </td>
+                    <td><div class="flex items-center"><svg class="lucide mr-1 text-error" width="14" height="14" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>${lead.property_address}</div></td>
+                    <td>${lead.regional_market}</td>
+                    <td><span class="badge ${getLeadStatusBadgeClass(lead.status)} badge-sm">${lead.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span></td>
+                    <td>${formatDate(lead.last_contacted_at)}</td>
+                    <td class="space-x-1">
+                        <button class="btn btn-xs btn-outline btn-info edit-lead-btn" data-id="${lead.id}">
+                            <svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> View/Edit
+                        </button>
+                        <button class="btn btn-xs btn-outline btn-error delete-lead-btn" data-id="${lead.id}">
+                            <svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg> Delete
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            attachLeadActionListeners();
+        }
+        
+        function getLeadStatusBadgeClass(status) {
+            const statusColors = { new: 'badge-info', contacted_step1: 'badge-accent', contacted_step2: 'badge-secondary', offer_sent: 'badge-primary', responded: 'badge-success', not_interested: 'badge-warning', deal_closed: 'badge-neutral text-neutral-content' };
+            return statusColors[status] || 'badge-ghost';
+        }
+
+        function attachLeadActionListeners() {
+            document.querySelectorAll('.edit-lead-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const leadId = e.currentTarget.dataset.id;
+                    const lead = mockLeadsData.find(l => l.id === leadId);
+                    if (lead) {
+                        leadModalTitle.textContent = 'Edit Lead';
+                        document.getElementById('lead-id').value = lead.id;
+                        document.getElementById('lead-owner_name').value = lead.owner_name;
+                        document.getElementById('lead-owner_email').value = lead.owner_email;
+                        document.getElementById('lead-property_address').value = lead.property_address;
+                        document.getElementById('lead-regional_market').value = lead.regional_market;
+                        document.getElementById('lead-phone').value = lead.phone || '';
+                        document.getElementById('lead-status').value = lead.status;
+                        document.getElementById('lead-notes').value = lead.notes || '';
+                        leadModal.showModal();
+                    }
+                });
+            });
+            document.querySelectorAll('.delete-lead-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const leadId = e.currentTarget.dataset.id;
+                    if (confirm('Are you sure you want to delete this lead?')) {
+                        mockLeadsData = mockLeadsData.filter(l => l.id !== leadId);
+                        renderLeadsTable();
+                        // TODO: API call to delete
+                    }
+                });
+            });
+        }
+        
+        document.getElementById('add-new-lead-btn').addEventListener('click', () => {
+            leadModalTitle.textContent = 'Add New Lead';
+            leadForm.reset();
+            document.getElementById('lead-id').value = `new-${Date.now()}`; // temp ID for new
+            leadModal.showModal();
+        });
+
+        leadForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(leadForm);
+            const leadData = Object.fromEntries(formData.entries());
+            leadData.last_contacted_at = new Date().toISOString(); // Update last contacted
+
+            if (leadData.id.startsWith('new-')) { // New lead
+                leadData.created_at = new Date().toISOString();
+                mockLeadsData.unshift(leadData); // Add to start of array
+            } else { // Existing lead
+                const index = mockLeadsData.findIndex(l => l.id === leadData.id);
+                if (index !== -1) {
+                    mockLeadsData[index] = { ...mockLeadsData[index], ...leadData };
+                }
+            }
+            renderLeadsTable();
+            leadModal.close();
+            // TODO: API call to save
+        });
+
+        [leadSearchInput, leadMarketFilter, leadStatusFilter].forEach(el => el.addEventListener('input', () => renderLeadsTable()));
+        document.getElementById('clear-lead-filters-btn').addEventListener('click', () => {
+            leadSearchInput.value = '';
+            leadMarketFilter.value = '';
+            leadStatusFilter.value = '';
+            renderLeadsTable();
+        });
+        
+        document.querySelectorAll('#leads-page thead th').forEach(th => {
+            th.addEventListener('click', (e) => {
+                const sortKey = e.currentTarget.dataset.sortkey;
+                if (!sortKey) return;
+
+                let direction = 'ascending';
+                if (currentLeadSortConfig && currentLeadSortConfig.key === sortKey && currentLeadSortConfig.direction === 'ascending') {
+                    direction = 'descending';
+                }
+                currentLeadSortConfig = { key: sortKey, direction };
+                
+                // Update sort icons
+                document.querySelectorAll('#leads-page thead th .sort-icon').forEach(icon => icon.textContent = '');
+                const currentThIcon = e.currentTarget.querySelector('.sort-icon');
+                if (currentThIcon) currentThIcon.textContent = direction === 'ascending' ? '▲' : '▼';
+
+                renderLeadsTable();
+            });
+        });
+
+
+        // --- Templates Page Logic ---
+        const templatesGridContainer = document.getElementById('templates-grid-container');
+        const templateSearchInput = document.getElementById('template-search-term');
+        const templateModal = document.getElementById('template-modal');
+        const templateForm = document.getElementById('template-form');
+        const templateModalTitle = document.getElementById('template-modal-title');
+        const templatePreviewModal = document.getElementById('template-preview-modal');
+
+        function renderTemplatesGrid(templatesToRender = mockTemplatesData) {
+            const searchTerm = templateSearchInput.value.toLowerCase();
+            const filteredTemplates = templatesToRender.filter(template =>
+                template.name.toLowerCase().includes(searchTerm) ||
+                template.subject.toLowerCase().includes(searchTerm)
+            );
+
+            templatesGridContainer.innerHTML = filteredTemplates.length > 0 ? filteredTemplates.map(template => `
+                <div class="card bg-base-100 shadow-lg hover:shadow-xl transition-shadow">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between">
+                            <svg class="lucide text-primary mb-2" width="24" height="24" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                            <div class="dropdown dropdown-end dropdown-left">
+                                <button tabindex="0" class="btn btn-xs btn-ghost">...</button>
+                                <ul tabindex="0" class="dropdown-content menu p-1 shadow bg-base-200 rounded-box w-32 z-10">
+                                    <li><button class="edit-template-btn text-sm w-full text-left" data-id="${template.id}"><svg class="lucide mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></li>
+                                    <li><button class="preview-template-btn text-sm w-full text-left" data-id="${template.id}"><svg class="lucide mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> Preview</button></li>
+                                    <li><button class="delete-template-btn text-sm text-error w-full text-left" data-id="${template.id}"><svg class="lucide mr-1" width="14" height="14" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <h2 class="card-title text-lg truncate" title="${template.name}">${template.name}</h2>
+                        <p class="text-sm text-base-content/70 truncate" title="${template.subject}">Subject: ${template.subject}</p>
+                        <p class="text-xs text-base-content/60 mt-1">Updated: ${formatDate(template.updated_at)}</p>
+                        <div class="mt-2">
+                            <p class="text-xs font-semibold mb-1">Placeholders:</p>
+                            <div class="flex flex-wrap gap-1">
+                                ${template.placeholders.slice(0, 3).map(p => `<span class="badge badge-outline badge-sm">${p}</span>`).join('')}
+                                ${template.placeholders.length > 3 ? '<span class="badge badge-outline badge-sm">...</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="card-actions justify-end mt-4">
+                            <button class="btn btn-sm btn-outline btn-accent preview-template-btn" data-id="${template.id}"><svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> Preview</button>
+                            <button class="btn btn-sm btn-primary edit-template-btn" data-id="${template.id}"><svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('') : `<div class="col-span-full text-center py-10">
+                    <svg class="lucide mx-auto text-base-content/30 mb-4" width="48" height="48" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <p class="text-xl text-base-content/70">No templates found.</p>
+                </div>`;
+            attachTemplateActionListeners();
+        }
+
+        function attachTemplateActionListeners() {
+            document.querySelectorAll('.edit-template-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const templateId = e.currentTarget.dataset.id;
+                    const template = mockTemplatesData.find(t => t.id === templateId);
+                    if (template) {
+                        templateModalTitle.textContent = 'Edit Template';
+                        document.getElementById('template-id').value = template.id;
+                        document.getElementById('template-name').value = template.name;
+                        document.getElementById('template-subject').value = template.subject;
+                        document.getElementById('template-body_html_full').value = template.body_html_full;
+                        document.getElementById('template-placeholders').value = template.placeholders.join(', ');
+                        templateModal.showModal();
+                    }
+                });
+            });
+            document.querySelectorAll('.delete-template-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const templateId = e.currentTarget.dataset.id;
+                    if (confirm('Are you sure you want to delete this template?')) {
+                        mockTemplatesData = mockTemplatesData.filter(t => t.id !== templateId);
+                        renderTemplatesGrid();
+                        // TODO: API call
+                    }
+                });
+            });
+            document.querySelectorAll('.preview-template-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const templateId = e.currentTarget.dataset.id;
+                    const template = mockTemplatesData.find(t => t.id === templateId);
+                    if (template) {
+                        document.getElementById('template-preview-modal-title').textContent = `Preview: ${template.name}`;
+                        document.getElementById('preview-subject').textContent = template.subject;
+                        document.getElementById('preview-body').innerHTML = template.body_html_full; // Make sure this is sanitized if from user input
+                        templatePreviewModal.showModal();
+                    }
+                });
+            });
+        }
+
+        document.getElementById('add-new-template-btn').addEventListener('click', () => {
+            templateModalTitle.textContent = 'Create New Template';
+            templateForm.reset();
+            document.getElementById('template-id').value = `new-${Date.now()}`;
+            document.getElementById('template-body_html_full').value = '<p>Start typing your HTML email body here...</p>';
+            templateModal.showModal();
+        });
+
+        templateForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(templateForm);
+            const templateData = {
+                id: formData.get('id'),
+                name: formData.get('name'),
+                subject: formData.get('subject'),
+                body_html_full: formData.get('body_html_full'),
+                placeholders: formData.get('placeholders').split(',').map(p => p.trim()).filter(p => p),
+                updated_at: new Date().toISOString()
+            };
+            templateData.body_html_snippet = templateData.body_html_full.substring(0, 100).replace(/<[^>]+>/g, '') + '...';
+
+
+            if (templateData.id.startsWith('new-')) {
+                templateData.created_at = new Date().toISOString();
+                mockTemplatesData.unshift(templateData);
+            } else {
+                const index = mockTemplatesData.findIndex(t => t.id === templateData.id);
+                if (index !== -1) mockTemplatesData[index] = { ...mockTemplatesData[index], ...templateData };
+            }
+            renderTemplatesGrid();
+            templateModal.close();
+            // TODO: API call
+        });
+        templateSearchInput.addEventListener('input', () => renderTemplatesGrid());
+
+        // --- User Accounts Page Logic ---
+        const accountsTableBody = document.getElementById('accounts-table-body');
+        function renderAccountsTable() {
+            accountsTableBody.innerHTML = mockAccountsData.map(account => `
+                <tr class="hover">
+                    <td>${account.employee_name}</td>
+                    <td><div class="flex items-center"><svg class="lucide mr-2 text-base-content/70" width="16" height="16" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>${account.gmail_address}</div></td>
+                    <td>
+                        <div class="flex items-center ${account.status_message?.toLowerCase().includes('expired') || account.status_message?.toLowerCase().includes('re-authorize') ? 'text-error' : 'text-success'}">
+                            ${account.status_message?.toLowerCase().includes('ready') ? '<svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>' : '<svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'}
+                            <span class="text-xs">${account.status_message || (account.is_active ? 'Ready' : 'Inactive')}</span>
+                        </div>
+                    </td>
+                    <td>${formatDate(account.last_authorized_at)}</td>
+                    <td><input type="checkbox" class="toggle toggle-primary toggle-sm toggle-account-active" data-id="${account.id}" ${account.is_active ? 'checked' : ''} /></td>
+                    <td>
+                        <button class="btn btn-xs btn-ghost text-error delete-account-btn" data-id="${account.id}"><svg class="lucide mr-1" width="16" height="16" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Remove</button>
+                        ${(account.status_message?.toLowerCase().includes('expired') || account.status_message?.toLowerCase().includes('re-authorize')) ? `<button class="btn btn-xs btn-outline btn-warning ml-2 reauthorize-account-btn" data-id="${account.id}">Re-authorize</button>` : ''}
+                    </td>
+                </tr>
+            `).join('');
+            attachAccountActionListeners();
+        }
+        function attachAccountActionListeners() {
+            document.querySelectorAll('.toggle-account-active').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const accountId = e.currentTarget.dataset.id;
+                    const account = mockAccountsData.find(a => a.id === accountId);
+                    if (account) account.is_active = e.currentTarget.checked;
+                    // TODO: API call
+                    console.log(`Account ${accountId} active status: ${account.is_active}`);
+                });
+            });
+            document.querySelectorAll('.delete-account-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const accountId = e.currentTarget.dataset.id;
+                    if (confirm('Are you sure you want to remove this Gmail account connection?')) {
+                        mockAccountsData = mockAccountsData.filter(a => a.id !== accountId);
+                        renderAccountsTable();
+                        // TODO: API call
+                    }
+                });
+            });
+             document.querySelectorAll('.reauthorize-account-btn').forEach(btn => {
+                btn.addEventListener('click', () => alert('Redirecting to Google OAuth... (Placeholder)'));
+            });
+        }
+        document.getElementById('link-new-gmail-account-btn').addEventListener('click', () => {
+            alert('Redirecting to Google OAuth for account linking... (Placeholder - Implement backend flow)');
+        });
+
+        // --- Campaigns Page Logic ---
+        const campaignsListContainer = document.getElementById('campaigns-list-container');
+        const campaignSearchInput = document.getElementById('campaign-search-term');
+        const campaignStatusFilter = document.getElementById('campaign-filter-status');
+        const campaignModal = document.getElementById('campaign-modal');
+        const campaignForm = document.getElementById('campaign-form');
+        const campaignModalTitle = document.getElementById('campaign-modal-title');
+        const campaignStepsContainer = document.getElementById('campaign-steps-container');
+
+        function populateCampaignModalDropdowns() {
+            const marketDropdown = document.getElementById('campaign-target_market');
+            marketDropdown.innerHTML = campaignMarkets.map(m => `<option value="${m === 'All Markets' ? '' : m}">${m}</option>`).join('');
+            
+            const statusTriggerDropdown = document.getElementById('campaign-lead_status_trigger');
+            statusTriggerDropdown.innerHTML = campaignLeadStatusTriggers.map(s => `<option value="${s}">${s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>`).join('');
+        }
+        
+        function renderCampaignStepInput(step, index) {
+            const templateOptions = mockTemplatesData.map(t => `<option value="${t.id}" ${step.template_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('');
+            const accountOptions = mockAccountsData.filter(a => a.is_active).map(a => `<option value="${a.id}" ${step.sending_account_id === a.id ? 'selected' : ''}>${a.gmail_address}</option>`).join('');
+
+            return `
+                <div id="campaign-step-${step.id || index}" class="p-3 border border-base-300 rounded-md space-y-2 bg-base-200/30 relative">
+                    <h4 class="font-semibold text-sm">Step ${index + 1}</h4>
+                    ${index > 0 || campaignStepsContainer.children.length > 1 ? `<button type="button" class="btn btn-xs btn-circle btn-error absolute top-2 right-2 remove-campaign-step-btn" data-step-index="${index}"><svg class="lucide" width="12" height="12" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>` : ''}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="label-text text-xs">Email Template</label>
+                            <select name="step_template_id_${index}" class="select select-bordered select-sm w-full" required>
+                                <option value="" disabled ${!step.template_id ? 'selected' : ''}>Select Template</option>
+                                ${templateOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label-text text-xs">Sending Gmail Account</label>
+                            <select name="step_sending_account_id_${index}" class="select select-bordered select-sm w-full" required>
+                                <option value="" disabled ${!step.sending_account_id ? 'selected' : ''}>Select Account</option>
+                                ${accountOptions}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="label-text text-xs">Delay (days after previous step/enrollment)</label>
+                        <input type="number" name="step_delay_days_${index}" min="0" class="input input-bordered input-sm w-full" value="${step.delay_days || 0}" required />
+                    </div>
+                    <input type="hidden" name="step_id_${index}" value="${step.id || `new_${index}`}">
+                </div>
+            `;
+        }
+        
+        function renderCampaignStepsForModal(steps = []) {
+            campaignStepsContainer.innerHTML = steps.map((step, index) => renderCampaignStepInput(step, index)).join('');
+            attachCampaignStepActionListeners();
+        }
+        
+        document.getElementById('add-campaign-step-btn').addEventListener('click', () => {
+            const newStep = { delay_days: 0, template_id: '', sending_account_id: ''};
+            const newStepHtml = renderCampaignStepInput(newStep, campaignStepsContainer.children.length);
+            campaignStepsContainer.insertAdjacentHTML('beforeend', newStepHtml);
+            attachCampaignStepActionListeners();
+        });
+
+        function attachCampaignStepActionListeners() {
+            document.querySelectorAll('.remove-campaign-step-btn').forEach(btn => {
+                // Remove existing listener before adding a new one to prevent duplicates
+                const newBtn = btn.cloneNode(true);
+                btn.parentNode.replaceChild(newBtn, btn);
+
+                newBtn.addEventListener('click', (e) => {
+                    e.currentTarget.closest('.border').remove();
+                    // Re-render steps to update numbering and indices if needed, or simply re-index form names
+                    const currentSteps = []; // Rebuild steps from DOM if complex re-indexing is needed
+                    // For now, just removing is fine, backend will handle final step order.
+                });
+            });
+        }
+
+        function renderCampaignsList(campaignsToRender = mockCampaignsData) {
+            const searchTerm = campaignSearchInput.value.toLowerCase();
+            const statusFilter = campaignStatusFilter.value;
+
+            const filteredCampaigns = campaignsToRender.filter(campaign =>
+                (campaign.name.toLowerCase().includes(searchTerm) || campaign.description.toLowerCase().includes(searchTerm)) &&
+                (statusFilter === 'all' ? true : (statusFilter === 'active' ? campaign.is_active : !campaign.is_active))
+            );
+
+            campaignsListContainer.innerHTML = filteredCampaigns.length > 0 ? filteredCampaigns.map(campaign => `
+                <div class="card bg-base-100 shadow-lg collapse collapse-arrow border border-base-300">
+                    <input type="checkbox" class="peer" />
+                    <div class="collapse-title text-xl font-medium peer-checked:bg-base-200">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+                            <div>
+                                <h2 class="text-lg font-semibold text-primary truncate" title="${campaign.name}">${campaign.name}</h2>
+                                <p class="text-xs text-base-content/70 truncate max-w-md" title="${campaign.description}">${campaign.description}</p>
+                                <p class="text-xs mt-1">
+                                    <span class="badge ${campaign.is_active ? 'badge-success' : 'badge-ghost'} badge-sm">${campaign.is_active ? 'Active' : 'Paused'}</span>
+                                    <span class="ml-2">Market: <span class="badge badge-outline badge-xs">${campaign.target_market || 'Any'}</span></span>
+                                    <span class="ml-2">Trigger: <span class="badge badge-outline badge-xs">${campaign.lead_status_trigger}</span></span>
+                                </p>
+                            </div>
+                            <div class="flex items-center space-x-2 mt-2 md:mt-0">
+                                <button class="btn btn-xs toggle-campaign-status-btn ${campaign.is_active ? 'btn-warning' : 'btn-success'}" data-id="${campaign.id}">
+                                    ${campaign.is_active ? '<svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause' : '<svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Activate'}
+                                </button>
+                                <button class="btn btn-xs btn-outline btn-info edit-campaign-btn" data-id="${campaign.id}"><svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button>
+                                <button class="btn btn-xs btn-outline btn-error delete-campaign-btn" data-id="${campaign.id}"><svg class="lucide" width="14" height="14" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="collapse-content bg-base-100 peer-checked:bg-base-200/50">
+                        <div class="divider my-1"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm p-2">
+                            <div><svg class="lucide inline mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg> Leads Enrolled: <span class="font-semibold">${campaign.total_leads_enrolled}</span></div>
+                            <div><svg class="lucide inline mr-1" width="14" height="14" viewBox="0 0 24 24"><path d="M22 2L11 13"></path><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> Emails Sent: <span class="font-semibold">${campaign.emails_sent}</span></div>
+                            <div><svg class="lucide inline mr-1" width="14" height="14" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg> Reply Rate: <span class="font-semibold">${campaign.reply_rate !== undefined ? `${campaign.reply_rate}%` : 'N/A'}</span></div>
+                        </div>
+                        <h4 class="font-semibold mt-3 mb-1 text-sm">Campaign Steps:</h4>
+                        <ul class="list-decimal list-inside space-y-1 text-xs pl-2">
+                            ${campaign.steps.map(step => `<li>Delay: <span class="badge badge-ghost badge-xs">${step.delay_days} days</span>, Template: "${step.template_name}", Sender: <span class="badge badge-outline badge-xs">${step.sending_account_name}</span></li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+            `).join('') : `<div class="text-center py-10 card bg-base-100 shadow-md"><div class="card-body items-center">
+                <svg class="lucide mx-auto text-base-content/30 mb-4" width="48" height="48" viewBox="0 0 24 24"><path d="M22 2L11 13"></path><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                <p class="text-xl text-base-content/70">No campaigns found.</p></div></div>`;
+            attachCampaignActionListeners();
+        }
+        
+        function attachCampaignActionListeners() {
+            document.querySelectorAll('.toggle-campaign-status-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent collapse toggle
+                    const campaignId = e.currentTarget.dataset.id;
+                    const campaign = mockCampaignsData.find(c => c.id === campaignId);
+                    if (campaign) campaign.is_active = !campaign.is_active;
+                    renderCampaignsList(); // Re-render to update button text and status
+                    // TODO: API call
+                });
+            });
+            document.querySelectorAll('.edit-campaign-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const campaignId = e.currentTarget.dataset.id;
+                    const campaign = mockCampaignsData.find(c => c.id === campaignId);
+                    if (campaign) {
+                        campaignModalTitle.textContent = 'Edit Campaign';
+                        document.getElementById('campaign-id').value = campaign.id;
+                        document.getElementById('campaign-name').value = campaign.name;
+                        document.getElementById('campaign-description').value = campaign.description;
+                        document.getElementById('campaign-target_market').value = campaign.target_market || '';
+                        document.getElementById('campaign-lead_status_trigger').value = campaign.lead_status_trigger;
+                        renderCampaignStepsForModal(campaign.steps);
+                        campaignModal.showModal();
+                    }
+                });
+            });
+            document.querySelectorAll('.delete-campaign-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const campaignId = e.currentTarget.dataset.id;
+                    if (confirm('Are you sure you want to delete this campaign?')) {
+                        mockCampaignsData = mockCampaignsData.filter(c => c.id !== campaignId);
+                        renderCampaignsList();
+                        // TODO: API call
+                    }
+                });
+            });
+        }
+
+        document.getElementById('add-new-campaign-btn').addEventListener('click', () => {
+            campaignModalTitle.textContent = 'Create New Campaign';
+            campaignForm.reset();
+            document.getElementById('campaign-id').value = `new-${Date.now()}`;
+            renderCampaignStepsForModal([{ delay_days: 0, template_id: '', sending_account_id: '' }]); // Start with one empty step
+            campaignModal.showModal();
+        });
+
+        campaignForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(campaignForm);
+            const campaignData = {
+                id: formData.get('id'),
+                name: formData.get('name'),
+                description: formData.get('description'),
+                target_market: formData.get('target_market') || null,
+                lead_status_trigger: formData.get('lead_status_trigger'),
+                is_active: false, // Default for new
+                created_at: new Date().toISOString(),
+                total_leads_enrolled: 0, emails_sent: 0,
+                steps: []
+            };
+
+            let stepIndex = 0;
+            while(formData.has(`step_template_id_${stepIndex}`)) {
+                const templateId = formData.get(`step_template_id_${stepIndex}`);
+                const accountId = formData.get(`step_sending_account_id_${stepIndex}`);
+                campaignData.steps.push({
+                    id: formData.get(`step_id_${stepIndex}`), // may be 'new_X' or existing ID
+                    step_number: stepIndex + 1,
+                    template_id: templateId,
+                    template_name: mockTemplatesData.find(t => t.id === templateId)?.name || 'Unknown Template',
+                    delay_days: parseInt(formData.get(`step_delay_days_${stepIndex}`), 10),
+                    sending_account_id: accountId,
+                    sending_account_name: mockAccountsData.find(a => a.id === accountId)?.gmail_address || 'Unknown Account'
+                });
+                stepIndex++;
+            }
+            
+            if (campaignData.id.startsWith('new-')) {
+                mockCampaignsData.unshift(campaignData);
+            } else {
+                const index = mockCampaignsData.findIndex(c => c.id === campaignData.id);
+                if (index !== -1) mockCampaignsData[index] = { ...mockCampaignsData[index], ...campaignData, created_at: mockCampaignsData[index].created_at }; // Preserve original created_at
+            }
+            renderCampaignsList();
+            campaignModal.close();
+            // TODO: API call
+        });
+        [campaignSearchInput, campaignStatusFilter].forEach(el => el.addEventListener('input', () => renderCampaignsList()));
+        document.getElementById('clear-campaign-filters-btn').addEventListener('click', () => {
+            campaignSearchInput.value = ''; campaignStatusFilter.value = 'all'; renderCampaignsList();
+        });
+
+
+        // --- Settings Page Logic ---
+        const settingsTabsNav = document.getElementById('settings-tabs-nav');
+        const settingsTabsContent = document.getElementById('settings-tabs-content');
+        const settingsTabs = [
+            { id: 'profile', label: 'User Profile', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>' },
+            { id: 'notifications', label: 'Notifications', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>' },
+            { id: 'appearance', label: 'Appearance', icon: '<svg class="lucide" viewBox="0 0 24 24"><path d="M12 2.69l.34.26A21.02 21.02 0 0 1 21.8 9.31c.58.58.58 1.52 0 2.1l-8.24 8.24a2.98 2.98 0 0 1-4.24 0L1.08 11.4a1.5 1.5 0 0 1 0-2.1L2.2 8.16a21.02 21.02 0 0 1 9.46-5.21l.34-.26Z"></path><path d="m21.8 9.31-8.24 8.24a2.98 2.98 0 0 1-4.24 0L1.08 11.4"></path></svg>' },
+            { id: 'security', label: 'Security & API', icon: '<svg class="lucide" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>' },
+        ];
+        let currentSettings = {
+            profile: { name: 'Admin User', email: 'admin@yourcrm.com', timezone: 'America/Chicago' },
+            notifications: { newLeadEmail: true, campaignCompletionEmail: true, dailySummaryEmail: false },
+            appearanceTheme: localStorage.getItem('theme') || 'light'
+        };
+
+        function renderSettingsTabs() {
+            settingsTabsNav.innerHTML = settingsTabs.map(tab => `
+                <li data-tabid="${tab.id}" class="w-full md:w-auto">
+                    <a class="settings-tab-link flex items-center ${tab.id === 'profile' ? 'active font-semibold' : ''}">${tab.icon} <span class="ml-2">${tab.label}</span></a>
+                </li>
+            `).join('');
+            document.querySelectorAll('.settings-tab-link').forEach(link => {
+                link.addEventListener('click', (e) => navigateToSettingsTab(e.currentTarget.closest('li').dataset.tabid));
+            });
+            navigateToSettingsTab('profile'); // Default to profile
+        }
+
+        function navigateToSettingsTab(tabId) {
+            document.querySelectorAll('#settings-tabs-nav li a').forEach(a => a.classList.remove('active', 'font-semibold'));
+            document.querySelector(`#settings-tabs-nav li[data-tabid="${tabId}"] a`).classList.add('active', 'font-semibold');
+            renderSettingsContent(tabId);
+        }
+
+        function renderSettingsContent(tabId) {
+            let content = '';
+            if (tabId === 'profile') {
+                content = `
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold">User Profile</h2>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Full Name</span></label>
+                            <input type="text" id="settings-profile-name" value="${currentSettings.profile.name}" class="input input-bordered w-full max-w-md" />
+                        </div>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Email Address</span></label>
+                            <input type="email" value="${currentSettings.profile.email}" class="input input-bordered w-full max-w-md" disabled />
+                        </div>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Timezone</span></label>
+                            <select id="settings-profile-timezone" class="select select-bordered w-full max-w-md">
+                                ${['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'].map(tz => `<option value="${tz}" ${currentSettings.profile.timezone === tz ? 'selected' : ''}>${tz.replace('America/', '').replace('_', ' ')}</option>`).join('')}
+                            </select>
+                        </div>
+                        <button id="save-profile-settings" class="btn btn-primary mt-4">Save Profile</button>
+                    </div>`;
+            } else if (tabId === 'notifications') {
+                 content = `
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold">Notification Preferences</h2>
+                        <div class="form-control"><label class="label cursor-pointer justify-start"><input type="checkbox" id="settings-notif-newLead" ${currentSettings.notifications.newLeadEmail ? 'checked' : ''} class="checkbox checkbox-primary mr-3" /><span class="label-text">Email for new leads</span></label></div>
+                        <div class="form-control"><label class="label cursor-pointer justify-start"><input type="checkbox" id="settings-notif-campaignCompletion" ${currentSettings.notifications.campaignCompletionEmail ? 'checked' : ''} class="checkbox checkbox-primary mr-3" /><span class="label-text">Email for campaign completions</span></label></div>
+                        <div class="form-control"><label class="label cursor-pointer justify-start"><input type="checkbox" id="settings-notif-dailySummary" ${currentSettings.notifications.dailySummaryEmail ? 'checked' : ''} class="checkbox checkbox-primary mr-3" /><span class="label-text">Daily activity summary</span></label></div>
+                        <button id="save-notification-settings" class="btn btn-primary mt-4">Save Notifications</button>
+                    </div>`;
+            } else if (tabId === 'appearance') {
+                const themes = ['light', 'dark', 'cupcake', 'bumblebee', 'emerald', 'corporate', 'synthwave', 'retro', 'cyberpunk', 'valentine', 'halloween', 'garden', 'forest', 'aqua', 'lofi', 'pastel', 'fantasy', 'wireframe', 'black', 'luxury', 'dracula', 'cmyk', 'autumn', 'business', 'acid', 'lemonade', 'night', 'coffee', 'winter', 'dim', 'nord', 'sunset'];
+                content = `
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold">Appearance & Theme</h2>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Select Theme</span></label>
+                            <div class="flex flex-wrap gap-2">
+                                ${themes.map(themeName => `<button class="btn btn-sm theme-selector-btn ${currentSettings.appearanceTheme === themeName ? 'btn-active btn-primary' : 'btn-outline'}" data-themevalue="${themeName}">${themeName.charAt(0).toUpperCase() + themeName.slice(1)}</button>`).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+            } else if (tabId === 'security') {
+                content = `
+                    <div class="space-y-4">
+                        <h2 class="text-xl font-semibold">Security & API</h2>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Change Password</span></label>
+                            <button class="btn btn-outline btn-primary w-full max-w-xs">Change Your Password</button>
+                        </div>
+                        <div class="divider">API Access</div>
+                        <p class="text-sm text-base-content/70">Manage API keys for external integrations.</p>
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Your API Key</span></label>
+                            <div class="input-group">
+                                <input type="text" value="********-****-****-****-************" class="input input-bordered w-full max-w-md" readonly />
+                                <button class="btn btn-square"><svg class="lucide" width="16" height="16" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg></button>
+                            </div>
+                        </div>
+                        <button class="btn btn-outline btn-accent">Generate New API Key</button>
+                    </div>`;
+            }
+            settingsTabsContent.innerHTML = content;
+            attachSettingsActionListeners(tabId);
+        }
+        
+        function attachSettingsActionListeners(tabId) {
+            if (tabId === 'profile') {
+                document.getElementById('save-profile-settings').addEventListener('click', () => {
+                    currentSettings.profile.name = document.getElementById('settings-profile-name').value;
+                    currentSettings.profile.timezone = document.getElementById('settings-profile-timezone').value;
+                    alert('Profile settings saved! (Placeholder)'); console.log('Saving profile:', currentSettings.profile);
+                    // TODO: API Call
+                });
+            } else if (tabId === 'notifications') {
+                 document.getElementById('save-notification-settings').addEventListener('click', () => {
+                    currentSettings.notifications.newLeadEmail = document.getElementById('settings-notif-newLead').checked;
+                    currentSettings.notifications.campaignCompletionEmail = document.getElementById('settings-notif-campaignCompletion').checked;
+                    currentSettings.notifications.dailySummaryEmail = document.getElementById('settings-notif-dailySummary').checked;
+                    alert('Notification settings saved! (Placeholder)'); console.log('Saving notifications:', currentSettings.notifications);
+                    // TODO: API Call
+                });
+            } else if (tabId === 'appearance') {
+                document.querySelectorAll('.theme-selector-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const newTheme = e.currentTarget.dataset.themevalue;
+                        document.documentElement.setAttribute('data-theme', newTheme);
+                        localStorage.setItem('theme', newTheme);
+                        currentSettings.appearanceTheme = newTheme;
+                        // Update button states
+                        document.querySelectorAll('.theme-selector-btn').forEach(b => b.classList.remove('btn-active', 'btn-primary'));
+                        e.currentTarget.classList.add('btn-active', 'btn-primary');
+                        // Also update navbar theme toggle icon if needed
+                         moonIcon.classList.toggle('hidden', newTheme === 'dark');
+                         sunIcon.classList.toggle('hidden', newTheme === 'light');
+                    });
+                });
+            }
+        }
+
+
+        // --- Initial Page Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            navigateToPage('dashboard'); // Default page
+            renderDashboard();
+            populateLeadFilterDropdowns();
+            renderLeadsTable();
+            renderTemplatesGrid();
+            renderAccountsTable();
+            populateCampaignModalDropdowns();
+            renderCampaignsList();
+            renderSettingsTabs();
+        });
+
+    </script>
+</body>
+</html>
