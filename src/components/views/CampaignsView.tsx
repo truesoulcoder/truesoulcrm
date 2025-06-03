@@ -10,7 +10,7 @@ import { Database } from '@/db_types';
 // DaisyUI components are available globally, no need to import
 
 type Campaign = Database['public']['Tables']['campaigns']['Row'];
-type MarketRegion = { market_region: string };
+type MarketRegion = { name: string }; // Changed from market_region to name
 
 export default function CampaignsView() {
   const supabase = createBrowserClient<Database>(
@@ -53,14 +53,14 @@ export default function CampaignsView() {
     try {
       const { data, error } = await supabase
         .from('market_regions')
-        .select('*')
-        .order('market_region');
+        .select('name') // Select the 'name' column
+        .order('name'); // Order by 'name'
 
       if (error) throw error;
       // Map the data to the expected MarketRegion type
-      const regions = data.map((item: any) => ({
-        market_region: item.market_region || ''
-      }));
+      const regions = data.map((item: { name: string | null }) => ({
+        name: item.name || '' // Use item.name
+      })).filter(region => region.name); // Filter out any empty names
       setMarketRegions(regions);
     } catch (error) {
       console.error('Error fetching market regions:', error);
@@ -337,8 +337,8 @@ export default function CampaignsView() {
               >
                 <option value="">Select a market region</option>
                 {marketRegions.map((region) => (
-                  <option key={region.market_region} value={region.market_region}>
-                    {region.market_region}
+                  <option key={region.name} value={region.name}>
+                    {region.name}
                   </option>
                 ))}
               </select>

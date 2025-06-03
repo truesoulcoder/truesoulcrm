@@ -44,16 +44,27 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
   useEffect(() => {
     const fetchMarketRegions = async () => {
       const { data, error } = await supabase
-        .from('normalized_leads')
-        .select('market_region');
-      if (!error && data) {
-        const regions = Array.from(new Set(data.map((row: any) => row.market_region)));
+        .from('market_regions') // Query the new 'market_regions' table
+        .select('name');       // Select the 'name' column
+
+      if (error) {
+        console.error('Error fetching market regions:', error);
+        if (addMessage) addMessage('error', 'Could not load market regions.');
+        setMarketRegions([]);
+        return;
+      }
+
+      if (data) {
+        // Ensure row.name is a string and filter out any null/undefined if necessary
+        const regions = Array.from(
+          new Set(data.map((row: { name: string | null }) => row.name).filter(Boolean) as string[])
+        );
         setMarketRegions(regions);
       }
     };
     
     void fetchMarketRegions();
-  }, []);
+  }, [addMessage]); // Add addMessage to dependency array
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,8 +77,13 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
     setMessage(`Uploading file: ${selectedFile.name} for market: ${marketRegion}...`); 
 
     const formData = new FormData();
+    const uploadId = crypto.randomUUID();
     formData.append('file', selectedFile);
-    formData.append('market_region', marketRegion.trim()); 
+    formData.append('market_region', marketRegion.trim());
+    formData.append('uploadId', uploadId);
+    formData.append('chunkIndex', '0');
+    formData.append('totalChunks', '1');
+    formData.append('fileName', selectedFile.name); 
 
     startTransition(async () => {
       try {

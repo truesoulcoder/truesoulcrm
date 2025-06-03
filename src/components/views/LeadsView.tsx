@@ -1,7 +1,7 @@
 'use client';
 // External dependencies
 import { AlertTriangle, CheckCircle, Info, XCircle } from 'lucide-react';
-import { useState } from 'react'; 
+import { useState, useCallback } from 'react'; 
 
 import LeadUploader from '@/components/leads/LeadUploader';
 
@@ -20,13 +20,14 @@ const LeadsView: React.FC = () => {
   const [messages, setMessages] = useState<AppMessage[]>([]);
   const [isProcessingLeads, setIsProcessingLeads] = useState<boolean>(false);
 
-  const handleAddMessage = (type: AppMessage['type'], text: string) => {
+  const handleAddMessage = useCallback((type: AppMessage['type'], text: string) => {
     const newMessage: AppMessage = { id: Date.now().toString(), type, text };
     setMessages(prevMessages => {
       const updatedMessages = [...prevMessages, newMessage];
+      // Keep only the last 5 messages
       return updatedMessages.slice(-5);
     });
-  };
+  }, []); // Empty dependency array for useCallback as setMessages is stable
 
   const handleUploadSuccess = (filename: string, count?: number) => {
     handleAddMessage('success', `Successfully uploaded ${filename}.${count ? ` ${count} leads processed.` : ''}`);
