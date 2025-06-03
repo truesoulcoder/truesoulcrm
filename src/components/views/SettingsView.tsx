@@ -1,7 +1,7 @@
 'use client';
 
-import Image from 'next/image';
 import { Shield, Key, Palette, BarChart2, Building2, Mail, Phone, Image as ImageIcon } from 'lucide-react';
+import Image from 'next/image';
 import { useState, useEffect, useCallback } from 'react';
 
 import { supabase } from '@/lib/supabase/client';

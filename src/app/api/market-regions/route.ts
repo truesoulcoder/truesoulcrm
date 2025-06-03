@@ -1,54 +1,60 @@
 // src/app/api/market-regions/route.ts
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, type ReadonlyRequestCookies } from 'next/headers'; // Import ReadonlyRequestCookies
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const cookieStore = cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            try {
+              cookieStore.set(name, value, options);
+            } catch (error) {
+              // The `setAll` method was called from a Server Component.
+              // This can be ignored if you have middleware refreshing user sessions.
+              // console.error('Error in setAll for cookie:', name, error);
+            }
+          });
         },
       },
     }
   );
 
   try {
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData?.user) {
-      console.error('API Error: User not authenticated for fetching market regions.', userError);
-      return NextResponse.json({ ok: false, error: 'User not authenticated.' }, { status: 401 });
-    }
+    // Optional: If you need to ensure the user is authenticated to access this route
+    // const { data: { user }, error: userError } = await supabase.auth.getUser();
+    // if (userError || !user) {
+    //   console.error('API Error: User not authenticated for fetching market regions.', userError);
+    //   return NextResponse.json({ error: 'User not authenticated.' }, { status: 401 });
+    // }
 
-    console.log('API: Attempting to fetch distinct market regions from normalized_leads...');
-
-    const { data, error } = await supabase
-      .from('normalized_leads')
-      .select('market_region', { count: 'exact', head: false, distinct: true })
-      .not('market_region', 'is', null) // Ensure we don't get null market regions
-      .order('market_region', { ascending: true });
+    const { data: marketRegions, error } = await supabase
+      .from('market_regions')
+      .select('id, name, normalized_name, lead_count') // Selected fields
+      .order('name', { ascending: true }); // Optional: order by name
 
     if (error) {
-      console.error('API Error: Failed to fetch distinct market regions:', error);
-      return NextResponse.json(
-        { ok: false, error: 'Failed to fetch market regions.', details: error.message },
-        { status: 500 }
-      );
+      console.error('Supabase error fetching market regions:', error);
+      return NextResponse.json({ error: `Error fetching market regions: ${error.message}` }, { status: 500 });
     }
 
-    const marketRegions = data ? data.map(item => item.market_region) : [];
-    console.log('API: Distinct market regions fetched successfully:', marketRegions);
-    return NextResponse.json({ ok: true, marketRegions }, { status: 200 });
+    if (!marketRegions || marketRegions.length === 0) {
+      return NextResponse.json({ error: 'No market regions found.' }, { status: 404 });
+    }
 
-  } catch (error: any) {
-    console.error('API: Unhandled error in GET /api/market-regions:', error);
-    return NextResponse.json(
-      { ok: false, error: 'An unexpected error occurred.', details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json(marketRegions, { status: 200 });
+
+  } catch (e: any) {
+    console.error('Error in /api/market-regions GET handler:', e);
+    return NextResponse.json({ error: e.message || 'An unexpected error occurred.' }, { status: 500 });
   }
 }

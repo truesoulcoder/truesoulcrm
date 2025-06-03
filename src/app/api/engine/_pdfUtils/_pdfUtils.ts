@@ -1,10 +1,12 @@
 import fs from 'fs/promises'; // For reading template files and font
 import path from 'path';
-import { PDFDocument, StandardFonts, rgb, PageSizes } from 'pdf-lib'; // Ensure imports at top
+
 import fontkit from '@pdf-lib/fontkit'; // Added fontkit import
+import { PDFDocument, StandardFonts, rgb, PageSizes } from 'pdf-lib'; // Ensure imports at top
 
 // Define paths (ensure these are correct for your serverless environment)
-const templateDir = path.join(process.cwd(), 'pages', 'api', 'eli5-engine', 'templates');
+// Updated path for App Router format
+const templateDir = path.join(process.cwd(), 'src', 'app', 'api', 'engine', 'templates');
 const BLANK_LETTERHEAD_PDF_FILE = path.join(templateDir, 'blank-letterhead.pdf');
 const ALEX_BRUSH_FONT_FILE = path.join(templateDir, 'AlexBrush-Regular.ttf');
 
@@ -28,7 +30,7 @@ function drawWrappedText(
     let currentY = y;
 
     for (const word of words) {
-        let testLine = currentLine === '' ? word : currentLine + ' ' + word;
+        const testLine = currentLine === '' ? word : `${currentLine} ${word}`;
         const testLineWidth = font.widthOfTextAtSize(testLine, fontSize);
 
         if (testLineWidth <= maxWidth) {
@@ -38,11 +40,11 @@ function drawWrappedText(
             if (currentLine !== '') { // Avoid drawing empty lines if a single word is too long initially
                 console.log(`DEBUG_WRAP: Drawing line at Y: ${currentY}, Line: "${currentLine}"`);
                 page.drawText(currentLine, {
-                    x: x,
+                    x,
                     y: currentY,
-                    font: font,
+                    font,
                     size: fontSize,
-                    color: color,
+                    color,
                 });
                 currentY -= lineHeight; // Move Y for the next line
             }
@@ -56,11 +58,11 @@ function drawWrappedText(
             if (currentWordWidth > maxWidth) {
                 console.log(`DEBUG_WRAP: Drawing line at Y: ${currentY}, Line (single word > maxWidth): "${currentLine}"`);
                 page.drawText(currentLine, { // Draw the long word on its own line
-                    x: x,
+                    x,
                     y: currentY,
-                    font: font,
+                    font,
                     size: fontSize,
-                    color: color,
+                    color,
                 });
                 currentY -= lineHeight;
                 currentLine = ''; // Reset currentLine as the long word has been drawn
@@ -72,11 +74,11 @@ function drawWrappedText(
     if (currentLine !== '') {
         console.log(`DEBUG_WRAP: Drawing line at Y: ${currentY}, Line (final): "${currentLine}"`);
         page.drawText(currentLine, {
-            x: x,
+            x,
             y: currentY,
-            font: font,
+            font,
             size: fontSize,
-            color: color,
+            color,
         });
         currentY -= lineHeight; // Decrement Y for consistency, returning position for *next* element.
     }
@@ -199,154 +201,123 @@ export const generateLoiPdf = async (
     // --- Offer Summary (Simplified Key-Value) ---
     const offerDetails = [
       { label: "Purchase Price:", value: personalizationData.offer_price || "N/A" },
-      { label: "Earnest Money Deposit (EMD):", value: personalizationData.emd_amount || "N/A" },
-      { label: "Closing Date:", value: personalizationData.closing_date || "N/A" },
-      { label: "Title Company:", value: personalizationData.title_company || "N/A" },
-      { label: "Buyer’s Assignment Consideration:", value: "$10" }, 
+      { label: "Closing Date:", value: personalizationData.closing_date_preference || "To be mutually agreed upon" },
+      { label: "Inspection Period:", value: personalizationData.inspection_period || "14 days from acceptance" },
+      { label: "Offer Expiration:", value: personalizationData.offer_expiration_date || "7 days from receipt" }
     ];
-    
-    const labelX = textX + 10; // Use textX (which is pageMargin) or add a small indent
-    const valueX = pageMargin + 220; // New fixed X for all values, increased from previous relative offset
 
     for (const detail of offerDetails) {
-      page.drawText(detail.label, { 
-        x: labelX, 
-        y: currentY, 
-        font: timesRomanFont, // Using timesRomanFont for labels
-        size: baseFontSize, 
-        color: bodyColor 
+      page.drawText(detail.label, {
+        x: textX,
+        y: currentY,
+        font: helveticaBoldFont,
+        size: baseFontSize,
+        color: bodyColor,
       });
-      page.drawText(detail.value, { 
-        x: valueX, // Use the new fixed X for values
-        y: currentY, 
-        font: helveticaBoldFont, // Keep helveticaBoldFont for values as per original
-        size: baseFontSize, 
-        color: bodyColor 
+      
+      page.drawText(detail.value, {
+        x: textX + 150, // Offset for value
+        y: currentY,
+        font: timesRomanFont,
+        size: baseFontSize,
+        color: bodyColor,
       });
+      
       currentY -= bodyLineHeight;
     }
-    currentY -= bodyLineHeight; // Space after offer details
+    currentY -= bodyLineHeight * 0.5; // Extra half-line after details
 
-    // --- 72-Hour Validity Paragraph (Placeholder) ---
-    // Replace with actual data from personalizationData if available, e.g., personalizationData.validity_paragraph
-    const validityText = personalizationData.validity_paragraph || "This offer is valid for a period of seventy-two (72) hours from the date and time of submission. Should this offer not be accepted within this timeframe, it shall be deemed automatically withdrawn.";
-    currentY = drawWrappedText(page, validityText, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor ); // Updated call
-    currentY -= bodyLineHeight; // Space after paragraph
+    // --- Body Paragraph 2 (Conditions) ---
+    const conditionsParagraph = "This Letter of Intent is subject to the preparation and execution of a definitive Purchase Agreement containing terms and conditions satisfactory to both parties. This LOI is non-binding except for the confidentiality provisions herein.";
+    currentY = drawWrappedText(page, conditionsParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
+    currentY -= bodyLineHeight;
 
-    // --- Closing Paragraph (Simplified) ---
-    const closingParagraph = "We look forward to the possibility of working with you on this transaction and are excited about the prospect of acquiring this Property. Please reply back to us if you wish to move forward or have questions.";
-    currentY = drawWrappedText(page, closingParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor ); // Updated call
-    currentY -= bodyLineHeight * 2; // Space before "Warm regards,"
+    // --- Body Paragraph 3 (Confidentiality) ---
+    const confidentialityParagraph = "The parties agree to keep the terms of this LOI and all discussions related to the potential purchase of the Property strictly confidential.";
+    currentY = drawWrappedText(page, confidentialityParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
+    currentY -= bodyLineHeight * 2;
 
-    // --- "Warm regards," ---
-    page.drawText("Warm regards,", {
+    // --- Closing ---
+    const closingParagraph = "We look forward to your favorable response and the opportunity to move forward with this transaction.";
+    currentY = drawWrappedText(page, closingParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
+    currentY -= bodyLineHeight * 2;
+
+    // --- Signature Block ---
+    page.drawText("Sincerely,", {
       x: textX,
       y: currentY,
-      font: helveticaFont,
+      font: timesRomanFont,
       size: baseFontSize,
       color: bodyColor,
     });
-    currentY -= bodyLineHeight * 2; // Space for signature
+    currentY -= bodyLineHeight * 2;
 
-    // --- Sender Signature Block ---
-    page.drawText(personalizationData.sender_name || "N/A Sender Name", {
+    // Signature (using Alex Brush font or fallback)
+    const signerName = personalizationData.sender_name || "Authorized Representative";
+    page.drawText(signerName, {
       x: textX,
       y: currentY,
-      font: alexBrushFont, // Use AlexBrush or fallback
+      font: alexBrushFont,
       size: signatureFontSize,
-      color: signatureColor, 
+      color: signatureColor,
     });
-    currentY -= signatureFontSize * 0.8; // Adjust based on font visual size
+    currentY -= bodyLineHeight;
 
-    page.drawText(personalizationData.sender_name || "N/A Sender Name", {
+    // Company/Title
+    page.drawText("TrueSoul Partners LLC", {
       x: textX,
       y: currentY,
-      font: helveticaFont,
+      font: helveticaBoldFont,
       size: baseFontSize,
       color: bodyColor,
     });
     currentY -= bodyLineHeight;
-    page.drawText(personalizationData.sender_title || "N/A Sender Title", {
-      x: textX,
-      y: currentY,
-      font: helveticaFont,
-      size: baseFontSize,
-      color: bodyColor,
-    });
-    currentY -= bodyLineHeight;
-    page.drawText(personalizationData.company_name || "N/A Company Name", {
-      x: textX,
-      y: currentY,
-      font: helveticaFont,
-      size: baseFontSize,
-      color: bodyColor,
-    });
-    currentY -= bodyLineHeight * 3; // More space before disclaimer
 
-    // --- Disclaimer Footer (Simplified) ---
-    const disclaimer = "This Letter of Intent is non-binding and is intended solely as a basis for further discussion and negotiation. No contractual obligations will arise between the parties unless and until a definitive written agreement is executed by both parties.";
-    // For disclaimer, it's often better to position from bottom if possible, or ensure enough space
-    // For now, continuing the flow, but ensure currentY does not go off-page.
-    // A check: if currentY < pageMargin + (disclaimerLineHeight * ~3 lines), then reposition.
-    if (currentY < pageMargin + (disclaimerLineHeight * 4)) { // Estimate 3 lines for disclaimer + padding
-        currentY = pageMargin + (disclaimerLineHeight * 4); // Place it at the bottom with some margin
+    // --- Disclaimer at Bottom ---
+    currentY = height - (height - 50); // Reset to near bottom of page
+    const disclaimerText = "This Letter of Intent is for discussion purposes only and does not constitute a binding agreement or offer to purchase the Property. No binding obligation shall exist until a definitive Purchase Agreement has been executed by both parties.";
+    currentY = drawWrappedText(page, disclaimerText, textX, currentY, timesRomanItalicFont, disclaimerFontSize, textMaxWidth, disclaimerLineHeight, disclaimerColor );
+
+    // 3. Merge with Letterhead (if available)
+    let finalPdfDoc;
+    try {
+      const letterheadBytes = await fs.readFile(BLANK_LETTERHEAD_PDF_FILE);
+      const letterheadPdfDoc = await PDFDocument.load(letterheadBytes);
+      
+      // Create a new document to merge content onto letterhead
+      finalPdfDoc = await PDFDocument.create();
+      
+      // Copy the letterhead page
+      const [letterheadPage] = await finalPdfDoc.copyPages(letterheadPdfDoc, [0]);
+      const letterheadPageInFinal = finalPdfDoc.addPage(letterheadPage);
+      
+      // Copy the content page
+      const [contentPage] = await finalPdfDoc.copyPages(contentPdfDoc, [0]);
+      
+      // Draw the content onto the letterhead page
+      // Note: We need to convert the contentPage to an embedded page first
+      // This is a workaround for the TypeScript error with drawPage
+      const { width: lWidth, height: lHeight } = letterheadPageInFinal.getSize();
+      const contentPageEmbedded = await finalPdfDoc.embedPage(contentPage);
+      letterheadPageInFinal.drawPage(contentPageEmbedded, {
+        x: 0,
+        y: 0,
+        width: lWidth,
+        height: lHeight,
+      });
+      
+      console.log('DEBUG_PDFUTILS: Successfully merged content with letterhead');
+    } catch (letterheadError) {
+      console.error('Error loading or merging letterhead, using content-only PDF:', letterheadError);
+      finalPdfDoc = contentPdfDoc; // Fallback to content-only if letterhead fails
     }
-    
-    currentY = drawWrappedText(page, disclaimer, textX, currentY, timesRomanItalicFont, disclaimerFontSize, textMaxWidth, disclaimerLineHeight, disclaimerColor ); // Updated call
 
-    // ... all page.drawText() and other drawing calls on 'page' from contentPdfDoc are complete ...
+    // 4. Save to Buffer
+    const pdfBytes = await finalPdfDoc.save();
+    return Buffer.from(pdfBytes);
 
-     const contentPdfBytes = await contentPdfDoc.save();
-     console.log('DEBUG_PDFUTILS: contentPdfBytes type:', typeof contentPdfBytes, 'instanceof Uint8Array:', contentPdfBytes instanceof Uint8Array, 'length:', contentPdfBytes?.length);
-
-     if (!(contentPdfBytes instanceof Uint8Array) || contentPdfBytes.length === 0) {
-         console.error('DEBUG_PDFUTILS: contentPdfBytes is invalid or empty. PDF content generation might have failed silently.');
-         throw new Error('Generated content PDF bytes are invalid or empty.');
-     }
-
-     const BLANK_LETTERHEAD_PDF_FILE = path.join(templateDir, 'blank-letterhead.pdf'); // Ensure templateDir is correctly defined
-     const letterheadPdfBytes = await fs.readFile(BLANK_LETTERHEAD_PDF_FILE);
-
-     const letterheadPdfDoc = await PDFDocument.load(letterheadPdfBytes);
-     const contentPdfToEmbed = await PDFDocument.load(contentPdfBytes); // This is the dynamically generated content
-     
-     console.log('DEBUG_PDFUTILS: contentPdfToEmbed (dynamic content) type:', typeof contentPdfToEmbed, 'pageCount:', contentPdfToEmbed?.getPageCount());
-
-     const pagesToEmbed = contentPdfToEmbed.getPages();
-     console.log('DEBUG_PDFUTILS: contentPdfToEmbed pages array length:', pagesToEmbed.length);
-
-     if (pagesToEmbed.length === 0) {
-         console.error('DEBUG_PDFUTILS: No pages found in dynamically generated content PDF (contentPdfToEmbed).');
-         throw new Error('No pages found in the generated content PDF to embed.');
-     }
-     // const firstPageFromContent = pagesToEmbed[0]; // This line can be removed as firstPageFromContent is no longer used directly here
-     // console.log('DEBUG_PDFUTILS: firstPageFromContent type:', typeof firstPageFromContent); // This log can also be removed
-
-     // Embed the first page (index 0) from the contentPdfToEmbed document
-     const [embeddedContentPage] = await letterheadPdfDoc.embedPdf(contentPdfToEmbed, [0]); 
-     
-     console.log('DEBUG_PDFUTILS: embeddedContentPage type:', typeof embeddedContentPage, 'width:', embeddedContentPage.width, 'height:', embeddedContentPage.height);
-
-     const firstPageOfLetterhead = letterheadPdfDoc.getPages()[0];
-     if (!firstPageOfLetterhead) {
-         console.error('DEBUG_PDFUTILS: Blank letterhead PDF does not contain any pages.');
-         throw new Error('Blank letterhead PDF does not contain any pages.');
-     }
-     
-     // Draw the EMBEDDED page onto the first page of the letterhead
-     firstPageOfLetterhead.drawPage(embeddedContentPage, { // Use the 'embeddedContentPage' here
-         x: 0, 
-         y: 0, 
-         width: embeddedContentPage.width, 
-         height: embeddedContentPage.height,
-     });
-
-     const mergedPdfBytes = await letterheadPdfDoc.save();
-     console.log('DEBUG_PDFUTILS: Merged PDF saved, byte length:', mergedPdfBytes.length);
-     return Buffer.from(mergedPdfBytes);
-
-  } catch (error: any) {
-    console.error(`Error in generateLoiPdf (pdf-lib) for lead ${leadId}: ${error.message}`, error.stack);
+  } catch (error) {
+    console.error('Error generating LOI PDF:', error);
     return null;
   }
 };

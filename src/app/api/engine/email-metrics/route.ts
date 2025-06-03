@@ -1,6 +1,6 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createAdminServerClient } from '@/lib/supabase/server';
 
 type EmailStatus = 'sent' | 'delivered' | 'bounced' | 'opened' | 'clicked' | 'replied';
 type TimeRange = '24h' | '7d' | '30d';
@@ -155,22 +155,14 @@ const getDateRange = (timeRange: string): Date => {
   return date;
 };
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ApiResponse>
-) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET']);
-    return res.status(405).json({ 
-      success: false, 
-      error: `Method ${req.method} Not Allowed` 
-    });
-  }
-
+export async function GET(request: NextRequest) {
+  // Extract query parameters from the URL
+  const searchParams = request.nextUrl.searchParams;
+  const timeRange = searchParams.get('timeRange') || '7d';
+  
   try {
-    const { timeRange = '7d' } = req.query as { timeRange?: string };
-    const startDate = getDateRange(timeRange);
-    const supabase = createClient();
+    const startDate = getDateRange(timeRange as string);
+    const supabase = await createAdminServerClient();
 
     // Define types for our metrics
     type SenderMetric = {
@@ -186,61 +178,35 @@ export default async function handler(
       // Get the Supabase client instance
       const client = supabase;
       
-      // Type assertions for Supabase client methods
-      const supabaseClient = client as unknown as {
-        from: (table: string) => {
-          select: (fields: string) => {
-            gte: (field: string, value: string) => {
-              group: (...fields: string[]) => Promise<{
-                data: SenderMetric[] | null;
-                error: any;
-              }>;
-            };
-          };
-        };
-        rpc: (fn: string, params: any) => Promise<{
-          data: any[] | null;
-          error: any;
-        }>;
-      };
-      
-      // Execute queries in parallel
-      const [
-        { data: senderData, error: senderError },
-        { data: timeSeriesData, error: timeSeriesError }
-      ] = await Promise.all([
-        supabaseClient
-          .from('eli5_email_log')
-          .select('sender_email_used, sender_name, email_status, count(*)')
-          .gte('created_at', startDate.toISOString())
-          .group('sender_email_used', 'sender_name', 'email_status'),
-        
-        supabaseClient.rpc('get_email_metrics_time_series', {
-          start_date: startDate.toISOString(),
-          end_date: new Date().toISOString(),
-          interval_days: timeRange === '24h' ? 1 : timeRange === '7d' ? 1 : 7
-        })
-      ]);
+      // Fetch metrics by sender and status
+      const { data: metricsData, error: metricsError } = await client
+        .from('eli5_email_log')
+        .select('sender_email_used, sender_name, email_status, count(*)')
+        .gte('created_at', startDate.toISOString())
+        .group('sender_email_used, sender_name, email_status');
 
-      if (senderError) {
-        throw new EmailMetricsError(
-          `Failed to fetch sender metrics: ${senderError.message}`, 
-          500
-        );
+      if (metricsError) {
+        throw new EmailMetricsError(`Error fetching email metrics: ${metricsError.message}`, 500);
       }
 
-      // Handle time series error without failing the whole request
+      // Fetch time series data (daily counts)
+      const { data: timeSeriesData, error: timeSeriesError } = await client.rpc(
+        'get_email_metrics_time_series',
+        { start_date: startDate.toISOString() }
+      );
+
       if (timeSeriesError) {
-        console.warn('Time series data not available:', timeSeriesError.message);
+        throw new EmailMetricsError(`Error fetching time series data: ${timeSeriesError.message}`, 500);
       }
 
-      // Process the data
-      const metrics = senderData || [];
-      const bySender = processSenderMetrics(metrics as unknown as EmailMetric[]);
-      const totals = calculateTotals(metrics as unknown as EmailMetric[]);
+      // Process the metrics data
+      const metrics = metricsData as EmailMetric[];
+      const totals = calculateTotals(metrics);
       const rates = calculateRates(totals);
+      const bySender = processSenderMetrics(metrics);
 
-      return res.status(200).json({
+      // Return the processed data
+      return NextResponse.json({
         success: true,
         data: {
           totals,
@@ -250,45 +216,24 @@ export default async function handler(
         }
       });
     } catch (error) {
-      // Safely handle the error with proper type checking
-      let status = 500;
-      let message = 'An unknown error occurred';
-      
       if (error instanceof EmailMetricsError) {
-        status = error.status;
-        message = error.message;
-      } else if (error instanceof Error) {
-        message = error.message;
-      } else if (typeof error === 'object' && error !== null) {
-        // Handle plain error objects that might not be instances of Error
-        message = String((error as { message?: unknown }).message || 'An unknown error occurred');
+        return NextResponse.json(
+          { success: false, error: error.message },
+          { status: error.status }
+        );
       }
       
-      console.error('Email metrics API error:', error);
-      return res.status(status).json({ 
-        success: false, 
-        error: message 
-      });
+      console.error('Unexpected error in email-metrics:', error);
+      return NextResponse.json(
+        { success: false, error: 'An unexpected error occurred while fetching email metrics.' },
+        { status: 500 }
+      );
     }
   } catch (error) {
-    // Safely handle the error with proper type checking
-    let status = 500;
-    let message = 'An unknown error occurred';
-    
-    if (error instanceof EmailMetricsError) {
-      status = error.status;
-      message = error.message;
-    } else if (error instanceof Error) {
-      message = error.message;
-    } else if (typeof error === 'object' && error !== null) {
-      // Handle plain error objects that might not be instances of Error
-      message = String((error as { message?: unknown }).message || 'An unknown error occurred');
-    }
-    
-    console.error('Email metrics API error:', error);
-    return res.status(status).json({ 
-      success: false, 
-      error: message 
-    });
+    console.error('Error in email-metrics route:', error);
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

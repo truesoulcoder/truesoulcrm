@@ -1,36 +1,60 @@
+import { JWT } from 'google-auth-library';
 import { google } from 'googleapis';
 
-export { sendEmail };
+/**
+ * Gmail service for sending emails through Google's Gmail API
+ * Uses service account with domain-wide delegation to send emails
+ */
 
-// Initialize JWT auth with service account key
-const googleServiceAccountKeyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+export { sendEmail, initializeGmailService };
 
-if (!googleServiceAccountKeyJson) {
-  throw new Error(
-    'GOOGLE_SERVICE_ACCOUNT_KEY environment variable is not defined. ' +
-    'This is required for Gmail integration. Please ensure it is set in your build environment.'
-  );
+// Service-wide variables
+let authClient: JWT;
+let gmail: ReturnType<typeof google.gmail>;
+
+/**
+ * Initialize the Gmail service with the provided service account key
+ * @param googleServiceAccountKeyJson - JSON string containing the service account credentials
+ * @returns The initialized Gmail API client
+ */
+function initializeGmailService(googleServiceAccountKeyJson: string): ReturnType<typeof google.gmail> {
+  if (!googleServiceAccountKeyJson) {
+    throw new Error(
+      'Google Service Account Key is not provided. ' +
+      'This is required for Gmail integration.'
+    );
+  }
+
+  let serviceKey;
+  try {
+    serviceKey = JSON.parse(googleServiceAccountKeyJson);
+  } catch (e) {
+    console.error('Failed to parse Google Service Account Key:', e);
+    throw new Error(
+      'Google Service Account Key is not valid JSON. ' +
+      'Please ensure it is a correctly formatted JSON string.'
+    );
+  }
+
+  authClient = new google.auth.JWT({
+    email: serviceKey.client_email,
+    key: serviceKey.private_key,
+    scopes: ['https://www.googleapis.com/auth/gmail.send'],
+  });
+
+  gmail = google.gmail({ version: 'v1', auth: authClient });
+  return gmail;
 }
 
-let serviceKey;
-try {
-  serviceKey = JSON.parse(googleServiceAccountKeyJson);
-} catch (e) {
-  console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY:', e);
-  throw new Error(
-    'GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON. ' +
-    'Please ensure it is a correctly formatted JSON string.'
-  );
-}
-
-const authClient = new google.auth.JWT({
-  email: serviceKey.client_email,
-  key: serviceKey.private_key,
-  scopes: ['https://www.googleapis.com/auth/gmail.send'],
-});
-
-const gmail = google.gmail({ version: 'v1', auth: authClient });
-
+/**
+ * Send an email using Gmail API with domain-wide delegation
+ * @param impersonatedUserEmail - Email address to send as (must be authorized for delegation)
+ * @param recipientEmail - Email address of the recipient
+ * @param subject - Email subject
+ * @param htmlBody - HTML content of the email
+ * @param attachments - Optional array of file attachments
+ * @returns Object containing success status and message details or error
+ */
 async function sendEmail(
   impersonatedUserEmail: string,
   recipientEmail: string,
@@ -39,6 +63,16 @@ async function sendEmail(
   attachments?: { filename: string; content: Buffer }[]
 ): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: unknown }> {
   try {
+    // Ensure Gmail service is initialized
+    if (!authClient || !gmail) {
+      const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      if (!serviceAccountKey) {
+        throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable is not defined');
+      }
+      initializeGmailService(serviceAccountKey);
+    }
+    
+    // Set the user to impersonate
     authClient.subject = impersonatedUserEmail;
 
     const boundary = `boundary_${Date.now()}`;
@@ -71,7 +105,8 @@ async function sendEmail(
       .toString('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    const res = await gmail.users.messages.send({
+    // Type assertion needed to handle the 'any' type safely
+const res = await gmail.users.messages.send({
       userId: impersonatedUserEmail,
       requestBody: { raw: rawMessage },
     });

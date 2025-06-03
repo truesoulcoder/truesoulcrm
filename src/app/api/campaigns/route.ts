@@ -2,6 +2,7 @@
 import { createRouteHandlerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+
 import type { Database } from '@/db_types'
 
 export const dynamic = 'force-dynamic'

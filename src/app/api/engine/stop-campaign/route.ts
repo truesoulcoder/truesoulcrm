@@ -1,15 +1,11 @@
-import { getSupabaseClient } from './_utils';
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
+
+import { createAdminServerClient } from '@/lib/supabase/server';
 
 const STATUS_KEY = 'campaign_processing_enabled';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
-
-  const supabase = getSupabaseClient();
+export async function POST(request: NextRequest) {
+  const supabase = await createAdminServerClient();
 
   try {
     // Attempt to update the flag. If the row doesn't exist, upsert it.
@@ -24,17 +20,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (error) {
       console.error('Error updating campaign status to STOP:', error);
-      return res.status(500).json({ success: false, error: `Supabase error: ${error.message}` });
+      return NextResponse.json(
+        { success: false, error: `Supabase error: ${error.message}` },
+        { status: 500 }
+      );
     }
 
     console.log(`Stop campaign signal processed. Status key '${STATUS_KEY}' set to false. Data:`, data);
-    return res.status(200).json({ 
+    return NextResponse.json({ 
       success: true, 
       message: 'Campaign processing has been signaled to stop. New campaign batches will not start (if they check this flag).' 
     });
 
   } catch (error: any) {
     console.error('Unexpected error in stop-campaign handler:', error);
-    return res.status(500).json({ success: false, error: error.message || 'An unknown error occurred.' });
+    return NextResponse.json(
+      { success: false, error: error.message || 'An unknown error occurred.' },
+      { status: 500 }
+    );
   }
 }
