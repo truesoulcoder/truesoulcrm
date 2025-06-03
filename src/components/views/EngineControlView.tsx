@@ -13,8 +13,24 @@ interface LogEntry {
   id: string;
   timestamp: string;
   message: string;
-  type: 'info' | 'error' | 'success' | 'warning' | 'engine'; // Added 'engine' type
-  data?: any; // Optional raw data from the log
+  type: 'info' | 'error' | 'success' | 'warning' | 'engine';
+  data?: any;
+}
+
+interface RawEngineLog {
+  id: number;
+  processed_at: string | null;
+  message: string;
+  log_level: string | null;
+  data?: any;
+}
+
+interface EngineLogTablePayload {
+  id: number; // Assuming 'id' in 'engine_log' is a number (e.g., SERIAL)
+  timestamp: string; // Assuming 'timestamp' from DB is an ISO string
+  message: string;
+  type: LogEntry['type']; // Assuming 'type' column matches 'info', 'error', etc.
+  data?: any;
 }
 
 type EngineStatus = 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'test_sending';
@@ -37,6 +53,12 @@ interface StartCampaignResponse {
   processing_errors?: any[];
 }
 
+interface ResumeCampaignResponse {
+  success: boolean;
+  message?: string;
+  error?: string; // Assuming error is a string, similar to other responses
+}
+
 interface StopCampaignResponse {
   success: boolean;
   message?: string;
@@ -52,14 +74,137 @@ interface MarketRegion {
 
 const EngineControlView: React.FC = (): JSX.Element => {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('idle');
-  const [marketRegion, setMarketRegion] = useState<string>('FLORIDA'); // For StartEngine
   const [marketRegionsList, setMarketRegionsList] = useState<MarketRegion[]>([]);
-  const [selectedTestMarketRegion, setSelectedTestMarketRegion] = useState<string>('');
+  const [selectedTestMarketRegion, setSelectedTestMarketRegion] = useState<string | undefined>('');
   const [isLoadingMarketRegions, setIsLoadingMarketRegions] = useState<boolean>(true);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const consoleEndRef = useRef<null | HTMLDivElement>(null);
+
+  // Real-time log updates from engine_log table
+  useEffect(() => {
+    const fetchInitialLogs = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('engine_log')
+          .select('*')
+          .order('processed_at', { ascending: true }) // Fetch oldest first for initial display
+          .limit(50); // Fetch last 50 logs initially
+
+        if (error) {
+          console.error('Error fetching initial engine logs:', error);
+          setConsoleLogs(prevLogs => [
+            ...prevLogs,
+            {
+              id: `${Date.now().toString()}_fetch_error`,
+              timestamp: new Date().toISOString(),
+              message: `Error fetching initial logs: ${error.message}`,
+              type: 'error'
+            }
+          ]);
+          return;
+        }
+
+        if (data) {
+          const formattedLogs: LogEntry[] = data.map((log: FetchedLogItem) => {
+            let timestampStr: string;
+            if (log.processed_at) {
+              const dateObj = new Date(log.processed_at);
+              if (isNaN(dateObj.getTime())) {
+                console.warn(`Invalid date value for processed_at: '${log.processed_at}' (log ID: ${log.id}). Using current time as fallback.`);
+                timestampStr = new Date().toISOString();
+              } else {
+                timestampStr = dateObj.toISOString();
+              }
+            } else {
+              console.warn(`Null or undefined processed_at for log ID: ${log.id}. Using current time as fallback.`);
+              timestampStr = new Date().toISOString();
+            }
+
+            const validLogTypes: ReadonlyArray<LogEntry['type']> = ['info', 'error', 'success', 'warning', 'engine'];
+            let mappedType: LogEntry['type'] = 'engine'; // Default type
+            if (log.log_level && validLogTypes.includes(log.log_level as LogEntry['type'])) {
+              mappedType = log.log_level as LogEntry['type'];
+            } else if (log.log_level) {
+              // Log level exists but is not one of the predefined valid types
+              console.warn(`Unknown log_level: '${log.log_level}' (log ID: ${log.id}). Defaulting to 'engine'.`);
+            }
+
+            let finalMessage: string;
+            if (log.message === null || typeof log.message === 'undefined') {
+              finalMessage = '';
+            } else {
+              finalMessage = String(log.message); // Ensure it's a string if not null/undefined
+            }
+
+            return {
+              id: String(log.id), // Ensure ID is string
+              timestamp: timestampStr,
+              message: finalMessage, // Use the explicitly typed and processed string
+              type: mappedType, // This should be correctly typed as LogEntry['type']
+              data: log.data
+            };
+          }) as LogEntry[];
+          setConsoleLogs(formattedLogs); // Set initial logs directly, replacing any previous ones
+        }
+      } catch (e: any) {
+        console.error('Exception fetching initial logs:', e);
+        setConsoleLogs(prevLogs => [
+          ...prevLogs,
+          {
+            id: `${Date.now().toString()}_fetch_exception`,
+            timestamp: new Date().toISOString(),
+            message: `Exception fetching initial logs: ${e.message}`,
+            type: 'error'
+          }
+        ]);
+      }
+    };
+
+    void fetchInitialLogs();
+
+    const channel = supabase
+      .channel('engine_log_changes') // Unique channel name
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'engine_log' },
+        (payload) => {
+          console.log('New engine log received:', payload.new);
+          const newRawLog = payload.new as EngineLogTablePayload; // Use specific type
+          const newLogEntry: LogEntry = {
+            id: String(newRawLog.id),
+            timestamp: new Date(newRawLog.timestamp).toISOString(),
+            message: newRawLog.message,
+            type: newRawLog.type as LogEntry['type'],
+            data: newRawLog.data,
+          };
+          // Append new log to the end of the existing logs
+          setConsoleLogs((prevLogs) => [...prevLogs, newLogEntry]);
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to engine_log changes!');
+        } else if (status === 'CHANNEL_ERROR' || err) {
+          console.error('Engine log subscription error:', err);
+          setConsoleLogs(prevLogs => [
+            ...prevLogs,
+            {
+              id: `${Date.now().toString()}_sub_error`,
+              timestamp: new Date().toISOString(),
+              message: `Log subscription error: ${err?.message || 'Unknown error'}`,
+              type: 'error'
+            }
+          ]);
+        }
+      });
+
+    // Cleanup function to remove the channel subscription when the component unmounts
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []); // Empty dependency array, supabase client is stable
 
   const addLog = useCallback((message: string, type: LogEntry['type'], data?: any) => {
     const newLog: LogEntry = {
@@ -91,23 +236,57 @@ const EngineControlView: React.FC = (): JSX.Element => {
       try {
         const response = await fetch('/api/market-regions');
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({})); // Try to parse error, default to empty obj
-          throw new Error(errorData.error || `Failed to fetch market regions: ${response.statusText}`);
+          const errorDetails = { error: `Failed to fetch market regions: ${response.statusText}` };
+          try {
+            // Attempt to parse JSON error response from the server
+            const parsedError = await response.json();
+            if (parsedError && typeof parsedError.error === 'string') {
+              errorDetails.error = parsedError.error;
+            }
+          } catch (e) {
+            // Response body wasn't JSON or error field was not a string, use default statusText based error
+          }
+          throw new Error(errorDetails.error);
         }
-        const data: MarketRegion[] | { error: string } = await response.json();
-        if ('error' in data) {
-          throw new Error((data as { error: string }).error);
+
+        const responseData = await response.json(); // This is 'any' until validated
+
+        // Check if the responseData itself is an error object (e.g., { error: "message" })
+        if (typeof responseData === 'object' && responseData !== null && 'error' in responseData && typeof responseData.error === 'string') {
+          throw new Error(String(responseData.error || 'Unknown API error'));
         }
-        setMarketRegionsList(data as MarketRegion[]);
-        if ((data as MarketRegion[]).length > 0) {
-          setSelectedTestMarketRegion((data as MarketRegion[])[0].normalized_name); // Default to first region
-          addLog(`Market regions loaded. Default test region: ${(data as MarketRegion[])[0].name}`, 'info');
+
+        // Perform a runtime check to ensure responseData is an array of MarketRegion objects
+        if (!Array.isArray(responseData) || !responseData.every(
+            (item: any): item is MarketRegion => // Type predicate for better type inference
+                typeof item === 'object' && item !== null &&
+                typeof item.id === 'string' &&
+                typeof item.name === 'string' &&
+                typeof item.normalized_name === 'string'
+            // Not strictly checking lead_count here as it's not used for the selection logic
+        )) {
+          throw new Error('Invalid data format for market regions. Expected an array of MarketRegion objects.');
+        }
+
+        const marketRegions: MarketRegion[] = responseData; // Now type-safe
+
+        setMarketRegionsList(marketRegions);
+
+        if (marketRegions.length > 0) {
+          const firstRegion = marketRegions[0];
+          // After validation, firstRegion.normalized_name is guaranteed to be a string.
+          setSelectedTestMarketRegion(firstRegion.normalized_name);
+          addLog(`Market regions loaded. Default test region: ${firstRegion.name}`, 'info');
         } else {
           addLog('No market regions found.', 'warning');
+          setSelectedTestMarketRegion(undefined); // Explicitly set to undefined
         }
       } catch (err: any) {
-        addLog(`Error fetching market regions: ${err.message}`, 'error');
-        setError(`Failed to load market regions: ${err.message}`);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        addLog(`Error fetching market regions: ${errorMessage}`, 'error');
+        setError(`Failed to load market regions: ${errorMessage}`);
+        setMarketRegionsList([]); // Clear list on error
+        setSelectedTestMarketRegion(undefined); // Clear selection on error
       } finally {
         setIsLoadingMarketRegions(false);
       }
@@ -157,18 +336,19 @@ const EngineControlView: React.FC = (): JSX.Element => {
       setError('A market region must be selected to send a test email.');
       return;
     }
-    addLog('Sending request to /api/-engine/test-email...', 'info');
+    addLog('Sending request to /api/engine/test-email...', 'info');
     setIsLoading(true);
     setEngineStatus('test_sending');
     setError(null);
 
     try {
-      const response = await fetch('/api/engine/test-email', { // Corrected API path
+      const response = await fetch('/api/engine/test-email', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           marketRegionNormalizedName: selectedTestMarketRegion,
-          sendToLead: true,
+          sendToLead: false, // Corrected for test email flow
+          sendPdf: true,    // Explicitly send true for test emails
         }),
       });
 
@@ -203,13 +383,13 @@ const EngineControlView: React.FC = (): JSX.Element => {
   };
 
   const handleStartEngine = async () => {
-    if (!marketRegion.trim()) {
-      const msg = 'Market region cannot be empty.';
+    if (!selectedTestMarketRegion || selectedTestMarketRegion.trim() === '') {
+      const msg = 'Market region cannot be empty. Please select a region.';
       addLog(msg, 'warning');
       setError(msg);
       return;
     }
-    addLog(`Initiating  Engine start sequence for market region: ${marketRegion}...`, 'info');
+    addLog(`Initiating Engine start sequence for market region: ${selectedTestMarketRegion}...`, 'info');
     setIsLoading(true);
     setEngineStatus('starting');
     setError(null);
@@ -217,8 +397,8 @@ const EngineControlView: React.FC = (): JSX.Element => {
     try {
       // Step 1: Call resume-campaign
       addLog('Attempting to resume campaign processing flag...', 'info');
-      const resumeResponse = await fetch('/api/-engine/resume-campaign', { method: 'POST' });
-      const resumeResult = await resumeResponse.json();
+      const resumeResponse = await fetch('/api/engine/resume-campaign', { method: 'POST' });
+      const resumeResult: ResumeCampaignResponse = await resumeResponse.json();
 
       if (!resumeResponse.ok || !resumeResult.success) {
         throw new Error(resumeResult.error || `Failed to resume campaign flag (status ${resumeResponse.status})`);
@@ -226,11 +406,11 @@ const EngineControlView: React.FC = (): JSX.Element => {
       addLog('Campaign processing flag successfully set to RESUMED.', 'success');
 
       // Step 2: Call start-campaign
-      addLog(`Sending request to /api/-engine/start-campaign for market: ${marketRegion}...`, 'info');
-      const startResponse = await fetch('/api/-engine/start-campaign', {
+      addLog(`Sending request to /api/engine/start-campaign for market: ${selectedTestMarketRegion}...`, 'info');
+      const startResponse = await fetch('/api/engine/start-campaign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ market_region: marketRegion /*, limit_per_run: 10 */ }), // limit_per_run is optional
+        body: JSON.stringify({ market_region: selectedTestMarketRegion /*, limit_per_run: 10 */ }),
       });
       const startResult: StartCampaignResponse = await startResponse.json();
 
@@ -262,12 +442,12 @@ const EngineControlView: React.FC = (): JSX.Element => {
   };
 
   const handleStopEngine = async () => {
-    addLog('Sending request to /api/-engine/stop-campaign...', 'info');
+    addLog('Sending request to /api/engine/stop-campaign...', 'info');
     setIsLoading(true);
     setEngineStatus('stopping');
     setError(null);
     try {
-      const response = await fetch('/api/-engine/stop-campaign', { method: 'POST' });
+      const response = await fetch('/api/engine/stop-campaign', { method: 'POST' });
       const result: StopCampaignResponse = await response.json();
 
       if (!response.ok) {
@@ -370,39 +550,27 @@ const EngineControlView: React.FC = (): JSX.Element => {
       )}
 
       <div className="card bordered shadow-lg bg-base-100 mb-6">
-        <div className="card-body p-4">
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Engine Status: <span className={`font-bold ${getStatusColor(engineStatus)}`}>{engineStatus.toUpperCase()}</span></h2>
-            <div className="form-control w-full sm:w-auto mt-3 sm:mt-0">
-              <label className="label" htmlFor="marketRegionInput">
-                <span className="label-text flex items-center"><MapPin size={16} className="mr-1" /> Market Region</span>
-              </label>
-              <input 
-                id="marketRegionInput"
-                type="text" 
-                placeholder="e.g., Austin" 
-                value={marketRegion}
-                onChange={(e) => setMarketRegion(e.target.value.toUpperCase())}
-                className="input input-bordered w-full sm:w-auto"
-                disabled={isLoading && (engineStatus === 'starting' || engineStatus === 'running')}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="flex flex-col space-y-2">
-              <div>
-                <label htmlFor="testMarketRegionSelect" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Test Email Market Region:
+        <div className="card-body p-4 md:p-6"> 
+          <div className="mb-6"> 
+            <div className="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-center"> 
+              <h2 className="text-xl font-semibold mb-2 sm:mb-0">
+                Engine Status: <span className={`font-bold ${getStatusColor(engineStatus)}`}>{engineStatus.toUpperCase()}</span>
+              </h2>
+              <div className="form-control w-full sm:w-auto">
+                <label htmlFor="marketRegionSelect" className="label pb-1">
+                  <span className="label-text flex items-center text-base">
+                    <MapPin size={18} className="mr-2" /> Market Region
+                  </span>
                 </label>
                 {isLoadingMarketRegions ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading regions...</p>
+                  <div className="skeleton h-12 w-full sm:w-64"></div>
                 ) : marketRegionsList.length > 0 ? (
-                  <select 
-                    id="testMarketRegionSelect"
+                  <select
+                    id="marketRegionSelect"
                     value={selectedTestMarketRegion}
                     onChange={(e) => setSelectedTestMarketRegion(e.target.value)}
-                    disabled={isLoading || engineStatus === 'test_sending' || engineStatus === 'running'}
-                    className="select select-bordered select-sm w-full max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    className="select select-bordered w-full sm:w-64"
+                    disabled={isLoading || isLoadingMarketRegions || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
                   >
                     {marketRegionsList.map((region) => (
                       <option key={region.id} value={region.normalized_name}>
@@ -411,56 +579,69 @@ const EngineControlView: React.FC = (): JSX.Element => {
                     ))}
                   </select>
                 ) : (
-                  <p className="text-sm text-red-500 dark:text-red-400">No market regions loaded.</p>
+                  <p className="text-sm text-base-content opacity-70 mt-2">No market regions available.</p>
                 )}
               </div>
-              <button 
-                onClick={() => { void handleSendTestEmail(); }} 
-                disabled={isLoading || engineStatus === 'running' || engineStatus === 'starting' || engineStatus === 'stopping' || engineStatus === 'test_sending' || isLoadingMarketRegions || !selectedTestMarketRegion}
-                className="btn btn-warning btn-sm shadow-md hover:shadow-lg transition-shadow duration-150 ease-in-out flex items-center space-x-2 self-start"
-              >
-                <Mail size={18} />
-                <span>Send Test Email</span>
-              </button>
             </div>
-            <button 
-              className="btn btn-success" 
-              onClick={() => { void handleStartClick(); }}
-              disabled={(isLoading && engineStatus !== 'starting') || engineStatus === 'running' || !marketRegion.trim()}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              onClick={() => {
+                void handleTestEmailClick(); 
+                // Any immediate synchronous UI updates can go here if needed,
+                // but async state changes (like loading) should be in handleTestEmailClick itself.
+              }}
+              className="btn btn-warning w-full text-base py-3"
+              disabled={isLoading || isLoadingMarketRegions || !selectedTestMarketRegion || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
             >
-              {isLoading && engineStatus === 'starting' ? (
-                <span className="loading loading-spinner loading-xs"></span>
-              ) : (
-                <PlayCircle className="mr-2 h-5 w-5" />
-              )}
-              Start Engine
+              <Mail size={20} className="mr-2" /> Send Test Email
             </button>
-            <button 
-              className="btn btn-error" 
-              onClick={() => { void handleStopClick(); }}
-              disabled={(isLoading && engineStatus !== 'stopping') || engineStatus === 'idle' || engineStatus === 'stopped'}
+
+            <button
+              onClick={() => {
+                void handleStartClick(); 
+                // Any immediate synchronous UI updates can go here if needed,
+                // but async state changes (like loading) should be in handleStartClick itself.
+              }}
+              className="btn btn-success w-full text-base py-3"
+              disabled={isLoading || isLoadingMarketRegions || !selectedTestMarketRegion || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
             >
-              {isLoading && engineStatus === 'stopping' ? (
-                <span className="loading loading-spinner loading-xs"></span>
-              ) : (
-                <StopCircle className="mr-2 h-5 w-5" />
-              )}
-              Stop Engine
+              <PlayCircle size={20} className="mr-2" /> Start Engine
+            </button>
+
+            <button
+              onClick={() => {
+                void handleStopClick(); 
+                // Any immediate synchronous UI updates can go here if needed,
+                // but async state changes (like loading) should be in handleStopClick itself.
+              }}
+              className="btn btn-error w-full text-base py-3"
+              disabled={isLoading || ['stopping', 'stopped', 'idle', 'test_sending'].includes(engineStatus)}
+            >
+              <StopCircle size={20} className="mr-2" /> Stop Engine
             </button>
           </div>
         </div>
       </div>
 
       <div className="card bordered shadow-lg bg-base-100">
-        <div className="card-body p-4">
-          <h2 className="text-xl font-semibold mb-3">Real-time Engine Log</h2>
-          <div className="h-96 overflow-y-auto bg-neutral text-neutral-content p-3 rounded-md text-sm font-mono">
-            {consoleLogs.length === 0 && <p>No log messages yet. Waiting for  Engine activity...</p>}
-            {consoleLogs.map(log => (
-              <div key={log.id} className={`whitespace-pre-wrap ${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : log.type === 'warning' ? 'text-yellow-400' : ''}`}>
-                <span className="text-gray-500">{new Date(log.timestamp).toLocaleTimeString()} | </span>
-                <span>{log.message}</span>
-                {log.data && <details className="text-xs text-gray-600"><summary>Raw Data</summary><pre>{JSON.stringify(log.data, null, 2)}</pre></details>}
+        <div className="card-body p-4 md:p-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-xl font-semibold">Real-time Engine Log</h2>
+            {/* Refresh button removed as logs are now real-time via Supabase subscription */}
+          </div>
+          <div className="bg-neutral text-neutral-content rounded-md p-3 h-64 overflow-y-auto text-xs font-mono">
+            {consoleLogs.length === 0 && <p>No log entries yet. Engine activities will appear here.</p>}
+            {consoleLogs.map((log) => (
+              <div key={log.id} className={`flex items-start mb-1 ${log.type === 'error' ? 'text-error' : log.type === 'success' ? 'text-success' : log.type === 'warning' ? 'text-warning' : ''}`}>
+                <span className="mr-2 opacity-70">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                {log.type === 'info' && <Info size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'error' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'success' && <CheckCircle size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'warning' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0 text-warning" />}
+                {log.type === 'engine' && <RefreshCw size={14} className="mr-1 mt-px flex-shrink-0 animate-pulse" />}
+                <span className="whitespace-pre-wrap break-all">{log.message}</span>
               </div>
             ))}
             <div ref={consoleEndRef} />
@@ -470,5 +651,14 @@ const EngineControlView: React.FC = (): JSX.Element => {
     </div>
   );
 };
+
+// Interface for raw log items fetched from the backend/Supabase
+interface FetchedLogItem {
+  id: string | number;
+  processed_at?: string | null; // Timestamps from DB can be string or null
+  message?: string | null;      // Message content
+  log_level?: string | null;    // Log level from DB, used to map to LogEntry['type']
+  data?: any;                   // Any additional data associated with the log
+}
 
 export default EngineControlView;

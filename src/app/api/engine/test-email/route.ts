@@ -2,38 +2,39 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import { SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { configure, renderString as nunjucksRenderString } from 'nunjucks';
+import { configure, Environment as NunjucksEnvironment } from 'nunjucks'; // Imported NunjucksEnvironment for typing
 
-import { generateOfferDetails, OfferDetails } from '@/actions/offerCalculations';
-import { createAdminServerClient } from '@/lib/supabase/server';
-import { sendEmail as sendGmail } from '@/services/gmailService';
-import { generateLoiPdf, PersonalizationData } from '@/services/pdfService';
-import { FineCutLead } from '@/types/leads';
+// IMPORTANT: Ensure these paths are correct according to your tsconfig.json 'paths' and actual file locations.
+import { createAdminServerClient } from '@/utils/supabase-admin'; // Assuming this path and export are correct
+import { Database, FineCutLead } from '@/types/supabase';
+import { isValidEmail as validateEmailFromUtils } from '@/app/api/engine/_utils/_utils'; // Using absolute path
+import { generateLoiPdf, PersonalizationData, sendEmail as sendGmailService } from '@/services';
+import { logSystemEvent } from '@/services/logService';
+import { OfferDetails, generateOfferDetails } from '@/actions/offerCalculations';
 
 // Define SenderData interface
 interface SenderData {
+  sender_name: string;
+  sender_email: string;
   email: string;
   name: string;
-  credentials_json: string; // Or a more specific type like Record<string, any>
+  credentials_json: string;
   is_default: boolean;
 }
 
 // Nunjucks environment setup
-// Adjust this path if your templates are located elsewhere.
 const templateDir = path.join(process.cwd(), 'src', 'app', 'api', 'engine', 'templates');
-// It's good practice to check if the directory exists, especially if dynamic
-// For now, assuming it exists or will be created.
-const nunjucksEnv = configure(templateDir, { autoescape: true });
+const nunjucksEnv: NunjucksEnvironment = configure(templateDir, { autoescape: true });
 
 // Hardcoded sender details (consider moving to a config or fetching dynamically)
 const TEST_SENDER_EMAIL = process.env.TEST_SENDER_EMAIL || 'chrisphillips@truesoulpartners.com';
 const TEST_SENDER_NAME = process.env.TEST_SENDER_NAME || 'Chris Phillips';
 const TEST_RECIPIENT_EMAIL = process.env.TEST_RECIPIENT_EMAIL || 'chrisphillips@truesoulpartners.com';
+const TEST_RECIPIENT_NAME = process.env.TEST_RECIPIENT_NAME || 'Test Recipient';
 
-// Type for logging (copied from _utils.ts)
-export interface Eli5EmailLogEntry {
+// Type for logging
+export interface EmailLogEntry {
   id?: number;
   created_at?: string;
   original_lead_id?: string | null;
@@ -66,7 +67,7 @@ export interface Eli5EmailLogEntry {
   [key: string]: any;
 }
 
-// Simplified MIME message creation function (copied from original test-email.ts)
+// Simplified MIME message creation function
 const createMimeMessage = (
   to: string,
   from: string,
@@ -82,7 +83,7 @@ const createMimeMessage = (
   email += `To: ${to}\r\n`;
   email += `Subject: ${subject}\r\n`;
   email += `MIME-Version: 1.0\r\n`;
-  email += `Content-Type: multipart/related; boundary="${boundary}"\r\n\r\n`; // Changed to multipart/related for inline images
+  email += `Content-Type: multipart/related; boundary="${boundary}"\r\n\r\n`;
 
   // HTML part
   email += `--${boundary}\r\n`;
@@ -100,15 +101,9 @@ const createMimeMessage = (
     email += `${inlineLogo.content.toString('base64')}\r\n\r\n`;
   }
   
-  // PDF attachment part - should come after related parts if HTML references inline images
+  // PDF attachment part
   if (pdfAttachment) {
-    // If we made the main content multipart/related, we need another multipart/mixed wrapper for attachments
-    // For simplicity here, assuming the primary content type change to multipart/related is sufficient
-    // and the structure will be: related_boundary -> html -> inline_image -> related_boundary_end -> attachment_boundary -> pdf -> attachment_boundary_end
-    // A more robust MIME structure might use multipart/mixed as the outermost, then multipart/related for HTML+inline.
-    // For now, keeping it simpler:
-    email += `--${boundary}\r\n`; // Re-using the same boundary, which is fine if structured correctly.
-                                  // Or use a new boundary for a sub-part.
+    email += `--${boundary}\r\n`;
     email += `Content-Type: application/pdf; name="${pdfAttachment.filename}"\r\n`;
     email += `Content-Disposition: attachment; filename="${pdfAttachment.filename}"\r\n`;
     email += `Content-Transfer-Encoding: base64\r\n\r\n`;
@@ -119,28 +114,42 @@ const createMimeMessage = (
   return email;
 };
 
-// Email Validation (copied from _utils.ts)
-const isValidEmail = (email: string): boolean => {
-  if (!email) {
-    return false;
+// Helper function to extract subject and clean HTML
+const extractSubjectAndCleanHtml = (
+  renderedHtmlWithComment: string,
+  context: Record<string, any>,
+  nunjucks: NunjucksEnvironment
+): { subject: string; cleanHtmlBody: string } => {
+  const subjectRegex = /<!-- SUBJECT: (.*?) -->/s; // Added 's' flag for multiline subjects if any
+  const match = renderedHtmlWithComment.match(subjectRegex);
+  let subject = `Offer for ${context.property_address || 'Your Property'}`; // Default subject with fallback
+  let cleanHtmlBody = renderedHtmlWithComment;
+
+  if (match && match[1]) {
+    try {
+      subject = nunjucks.renderString(match[1].trim(), context);
+    } catch (e: any) {
+      console.error(`Error rendering subject template: "${match[1].trim()}"`, e);
+      // Fallback to the raw extracted subject or the default if rendering fails
+      subject = match[1].trim() || subject;
+    }
+    cleanHtmlBody = renderedHtmlWithComment.replace(subjectRegex, '').trim();
   }
-  const pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  return pattern.test(email);
+  return { subject, cleanHtmlBody };
 };
 
 export async function POST(request: NextRequest) {
   const supabase = await createAdminServerClient();
 
   // Helper for logging within this handler's scope
-  const logToSupabase = async (logData: Partial<Eli5EmailLogEntry>) => {
+  const logToSupabase = async (logData: Partial<EmailLogEntry>) => {
     try {
-      const { error } = await supabase.from('eli5_email_log').insert([logData]);
+      const { error } = await supabase.from('engine_log').insert([logData]);
       if (error) {
-        console.error('Failed to log to Supabase:', error);
-        // Potentially throw to be caught by the main try-catch, or handle here
+        console.error('Error in final catch block of POST handler:', (error as Error).message);
       }
     } catch (error) {
-      console.error('Error in logToSupabase (within POST):', error);
+      console.error('Error in logToSupabase (within POST):', (error as Error).message);
     }
   };
 
@@ -162,83 +171,115 @@ export async function POST(request: NextRequest) {
     // 1. Fetch Active Sender
     const { data: senderData, error: senderError } = await supabase
       .from('senders')
-      .select('email, name, credentials_json, is_default') // Removed incorrect FineCutLead generic
+      .select('sender_email, sender_name, created_at')
       .eq('is_active', true)
       .eq('status', 'active')
-      .order('is_default', { ascending: false }) // Prioritize default sender
-      .order('created_at', { ascending: true }) // Fallback sort
+      .order('created_at', { ascending: true })
       .limit(1)
-      .maybeSingle<SenderData>(); // Apply SenderData type here
+      .maybeSingle<SenderData>();
 
-    const sender = senderData; // Keep variable name 'sender' for subsequent code
+    const sender = senderData;
 
     if (senderError) {
       console.error('Supabase error fetching sender:', (senderError as Error).message);
-      await logToSupabase({ email_status: 'ERROR_SYSTEM', email_error_message: `Error fetching active sender: ${(senderError as Error).message}` });
+      await logSystemEvent({
+        event_type: 'ENGINE_TEST_EMAIL_ERROR',
+        message: `Error fetching active sender: ${(senderError as Error).message}`,
+        details: { error: senderError, marketRegion: marketRegionNormalizedName, leadTableName },
+        campaign_id: requestBody.campaignId
+      });
       return NextResponse.json({ success: false, error: `Error fetching active sender: ${(senderError as Error).message}` }, { status: 500 });
     }
     if (!sender) {
-      await logToSupabase({ email_status: 'ERROR_SYSTEM', email_error_message: 'No active sender found.' });
+      await logSystemEvent({
+        event_type: 'ENGINE_TEST_EMAIL_INFO',
+        message: `No active sender found in ${marketRegionNormalizedName} for test email.`,
+        details: { marketRegion: marketRegionNormalizedName, leadTableName },
+        campaign_id: requestBody.campaignId
+      });
       return NextResponse.json({ success: false, error: 'No active sender found in Supabase.' }, { status: 404 });
     }
 
-    const activeSenderEmail = sender.email;
-    const activeSenderName = sender.name;
+    let lead: FineCutLead | null = null;
+    const batchSize = 1;
+    const MAX_LEAD_FETCH_ATTEMPTS = 20;
 
-    // 2. Fetch Sample Lead
-    let leadQueryBuilder = supabase
-      .from(leadTableName)
-      .select('*');
+    for (let attempt = 0; attempt < MAX_LEAD_FETCH_ATTEMPTS; attempt++) {
+      const { data: candidateLeads, error: leadFetchError } = await supabase
+        .from(leadTableName)
+        .select('*')
+        .order('id', { ascending: true })
+        .range(attempt, attempt + batchSize - 1);
 
-    if (specificLeadIdToTest) {
-      leadQueryBuilder = leadQueryBuilder.eq('id', specificLeadIdToTest);
-    } else {
-      // If no specific lead ID, fetch one that has a usable email
-      leadQueryBuilder = leadQueryBuilder.or(
-        `and(contact_email.is.not.null,contact_email.neq.'')`
-      );
-      // Order by ID to get a consistent lead if multiple match
-      leadQueryBuilder = leadQueryBuilder.order('id', { ascending: true });
+      if (leadFetchError) {
+        console.error(`Error fetching lead for test email (attempt ${attempt + 1}):`, (leadFetchError as Error).message);
+        await logSystemEvent({
+          event_type: 'ENGINE_TEST_EMAIL_ERROR',
+          message: `DB error fetching lead (attempt ${attempt + 1}) from ${leadTableName} for test email: ${(leadFetchError as Error).message}`,
+          details: { error: leadFetchError, marketRegion: marketRegionNormalizedName, leadTableName },
+          campaign_id: requestBody.campaignId
+        });
+        return NextResponse.json({ success: false, error: 'Database error while fetching leads for test.' }, { status: 500 });
+      }
+
+      if (!candidateLeads || candidateLeads.length === 0) {
+        await logSystemEvent({
+          event_type: 'ENGINE_TEST_EMAIL_INFO',
+          message: `No more leads available in ${marketRegionNormalizedName} to check for test email.`,
+          details: { marketRegion: marketRegionNormalizedName, leadTableName },
+          campaign_id: requestBody.campaignId
+        });
+        break;
+      }
+
+      const candidateLead = candidateLeads[0];
+
+      if (
+        candidateLead.contact_name &&
+        candidateLead.contact_email &&
+        candidateLead.property_address &&
+        candidateLead.property_city &&
+        candidateLead.property_state &&
+        candidateLead.property_postal_code &&
+        candidateLead.assessed_total !== null && typeof candidateLead.assessed_total === 'number'
+      ) {
+        lead = candidateLead;
+        break;
+      }
     }
 
-    const { data: lead, error: leadError } = await leadQueryBuilder.limit(1).maybeSingle<FineCutLead>();
-
-    if (leadError) {
-      console.error(`Supabase error fetching lead from ${leadTableName}:`, (leadError as Error).message);
-      await logToSupabase({ email_status: 'ERROR_LEAD_FETCH', email_error_message: `Error fetching lead: ${(leadError as Error).message}`, market_region: marketRegionNormalizedName });
-      return NextResponse.json({ success: false, error: `Error fetching lead from ${leadTableName}: ${(leadError as Error).message}` }, { status: 500 });
-    }
     if (!lead) {
-      const message = specificLeadIdToTest ? `No lead found with ID ${specificLeadIdToTest} in ${leadTableName}.` : `No lead found in ${leadTableName} for testing.`;
-      console.warn(message);
-      await logToSupabase({ email_status: 'ERROR_LEAD_NOT_FOUND', email_error_message: message, market_region: marketRegionNormalizedName });
-      return NextResponse.json({ success: false, error: message }, { status: 404 });
-    }
-    
-    // Ensure contact_name is a string
-    if (lead.contact_name === null || typeof lead.contact_name === 'undefined') {
-      lead.contact_name = ""; 
-    } else {
-      lead.contact_name = String(lead.contact_name); // Ensure it's a string type
+      await logSystemEvent({
+        event_type: 'ENGINE_TEST_EMAIL_WARNING',
+        message: `No suitable lead found in ${marketRegionNormalizedName} after checking ${MAX_LEAD_FETCH_ATTEMPTS} leads for test email.`,
+        details: {
+          marketRegion: marketRegionNormalizedName,
+          attempts: MAX_LEAD_FETCH_ATTEMPTS,
+          leadTableName
+        },
+        campaign_id: requestBody.campaignId
+      });
+      return NextResponse.json({ success: false, error: `No suitable lead found in ${marketRegionNormalizedName} to use for the test email after checking up to ${MAX_LEAD_FETCH_ATTEMPTS} leads. Ensure leads have all required fields: contact_name, contact_email, property_address, city, state, postal_code, assessed_total.` }, { status: 404 });
     }
 
     const leadIdForApiResponse = lead.id;
+
+    const activeSenderEmail = sender.sender_email;
+    const activeSenderName = sender.sender_name;
+
     let actualLeadEmail: string | undefined | null = null;
-    // The check for !lead happens right after fetching, so lead is guaranteed to be defined here.
-    if (lead.contact_email && isValidEmail(lead.contact_email)) {
+    if (lead.contact_email && validateEmailFromUtils(lead.contact_email)) {
       actualLeadEmail = lead.contact_email;
     }
 
     const intendedRecipientEmail = sendToLead && actualLeadEmail ? actualLeadEmail : TEST_RECIPIENT_EMAIL;
-    const recipientName = sendToLead ? lead.contact_name : "Test Recipient"; // If sendToLead, use lead's name for personalization.
+    const recipientName = sendToLead ? (lead.contact_name as string) : (TEST_RECIPIENT_NAME || 'Test Recipient');
 
-
-    // 3. Validate Essential Lead Fields
     const essentialLeadFieldKeys: (keyof typeof lead)[] = ['property_address', 'property_city', 'property_state', 'contact_name', 'assessed_total'];
     const missingFields: string[] = [];
     essentialLeadFieldKeys.forEach(key => {
       const value = lead[key];
-      if (key === 'contact_name') { // Already ensured it's a string
+      if (key === 'contact_name') {
         if (String(value).trim() === '') missingFields.push(String(key));
       } else if (key === 'assessed_total') {
         if (value === null || typeof value === 'undefined') missingFields.push(String(key));
@@ -266,12 +307,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: errorMessage, lead_id: leadIdForApiResponse, missing_fields: missingFields }, { status: 400 });
     }
 
-    // 4. Generate Offer Details & Prepare Email/PDF Context
+    // Ensure assessed_total is a number before calling generateOfferDetails
+    // The lead fetching loop should already guarantee this, but an explicit check adds safety.
     if (lead.assessed_total === null || typeof lead.assessed_total === 'undefined') {
-      // This should ideally be caught by the missingFields check earlier, but as a safeguard:
-      return NextResponse.json({ success: false, error: 'assessed_total is missing or invalid for offer calculation.', lead_id: leadIdForApiResponse }, { status: 400 });
+      const errorMessage = 'Assessed total is missing or invalid for offer calculation.';
+      console.error(errorMessage, { lead_id: lead.id });
+      await logSystemEvent({
+        event_type: 'ENGINE_TEST_EMAIL_ERROR',
+        message: errorMessage,
+        details: { lead_id: lead.id, assessed_total: lead.assessed_total },
+        original_lead_id: String(lead.id),
+        campaign_id: requestBody.campaignId
+      });
+      return NextResponse.json({ success: false, error: errorMessage, lead_id: lead.id }, { status: 400 });
     }
-    const offerDetails: OfferDetails = generateOfferDetails(lead.assessed_total, lead.contact_name);
+    const offerDetails: OfferDetails = generateOfferDetails(lead.assessed_total, lead.contact_name as string);
 
     const staticPdfFields = {
       inspection_period: "7 days (excluding weekends and federal holidays)",
@@ -279,147 +329,134 @@ export async function POST(request: NextRequest) {
       company_name: "True Soul Partners LLC",
     };
 
-    const templateContext = {
-      // Lead specific fields (direct)
+    const templateContext: Record<string, any> = {
       property_address: lead.property_address,
       property_city: lead.property_city,
       property_state: lead.property_state,
-      property_postal_code: lead.property_postal_code,
-      // Calculated offer details
-      ...offerDetails, // Includes offerPriceFormatted, emdAmountFormatted, closingDateFormatted, greetingName, offerExpirationDateFormatted, currentDateFormatted
-      // Sender details
+      property_postal_code: lead.property_postal_code ?? '', // Ensure string for template
+      ...offerDetails,
       sender_name: activeSenderName,
-      sender_email: activeSenderEmail, // For email template if needed, not typically in PDF LOI text
-      // Static PDF fields
+      sender_email: activeSenderEmail,
       ...staticPdfFields,
-      // Other dynamic data for templates
-      current_year: new Date().getFullYear(), // For email template if needed
-      logo_cid: 'company_logo_cid' // Content-ID for the inline logo in email
+      current_year: new Date().getFullYear(),
+      logo_cid: 'company_logo_cid'
     };
 
-    const emailSubject = nunjucksEnv.render('subject_template.njk', templateContext);
-    const emailHtmlBody = nunjucksEnv.render('body_template.njk', templateContext);
+    const rawHtmlBodyWithSubject = nunjucksEnv.render('email_body_with_subject.html', templateContext);
+    const { subject, cleanHtmlBody: htmlBody } = extractSubjectAndCleanHtml(rawHtmlBodyWithSubject, templateContext, nunjucksEnv);
 
-    // This section is now part of the refactored step 5 above.
-    // The original line was: "// 5. Generate PDF (optional)"
-    // The new content for PDF generation is integrated into the `personalizationData` mapping.
-    // The actual call to `generateLoiPdf` remains, but its data source is `personalizationData`.
+    let textBody = '';
+    try {
+      textBody = nunjucksEnv.render('letter_of_intent_text.html', templateContext);
+    } catch (renderError: any) {
+      console.warn(`Nunjucks render error for text template letter_of_intent_text.html: ${(renderError as Error).message}. Using fallback text body.`);
+      textBody = `Please enable HTML to view this email. Offer details for ${templateContext.property_address}.`;
+    }
+
     let pdfBuffer: Buffer | null = null;
     if (sendPdf) {
       try {
-        // Convert lead data to PersonalizationData format
-        // 5. Generate PDF (optional)
-        // PersonalizationData for PDF now uses the already prepared templateContext
         const personalizationData: PersonalizationData = {
-          property_address: templateContext.property_address ?? undefined,
-          property_city: templateContext.property_city ?? undefined,
-          property_state: templateContext.property_state ?? undefined,
-          property_postal_code: templateContext.property_postal_code ?? undefined,
-          current_date: templateContext.currentDateFormatted ?? undefined,
-          greeting_name: templateContext.greetingName ?? undefined,
-          offer_price: templateContext.offerPriceFormatted ?? undefined,
-          inspection_period: templateContext.inspection_period ?? undefined,
-          emd_amount: templateContext.emdAmountFormatted ?? undefined,
-          closing_date: templateContext.closingDateFormatted ?? undefined,
-          offer_expiration_date: templateContext.offerExpirationDateFormatted ?? undefined,
-          sender_name: templateContext.sender_name ?? undefined,
-          sender_title: templateContext.sender_title ?? undefined,
-          company_name: templateContext.company_name ?? undefined,
+          property_address: String(templateContext.property_address ?? ''),
+          property_city: String(templateContext.property_city ?? ''),
+          property_state: String(templateContext.property_state ?? ''),
+          property_postal_code: String(templateContext.property_postal_code ?? ''),
+          current_date: String(templateContext.currentDateFormatted ?? ''),
+          greeting_name: String(templateContext.greetingName ?? ''),
+          offer_price: String(templateContext.offerPriceFormatted ?? ''),
+          inspection_period: String(templateContext.inspection_period ?? ''),
+          emd_amount: String(templateContext.emdAmountFormatted ?? ''),
+          closing_date: String(templateContext.closingDateFormatted ?? ''),
+          offer_expiration_date: String(templateContext.offerExpirationDateFormatted ?? ''),
+          sender_name: String(templateContext.sender_name ?? ''),
+          sender_title: String(templateContext.sender_title ?? ''),
+          company_name: String(templateContext.company_name ?? ''),
         };
-        
-        const leadId = specificLeadIdToTest || lead?.normalized_lead_id || 'unknown';
-        const contactEmail = lead?.contact_email || 'unknown'; // Only use contact_email
-        pdfBuffer = await generateLoiPdf(personalizationData, leadId, contactEmail);
+
+        const leadIdString = String(specificLeadIdToTest || lead.id || 'unknown');
+        const contactEmailString = lead?.contact_email ? String(lead.contact_email) : 'unknown_email'; // Already correct
+
+        pdfBuffer = await generateLoiPdf(personalizationData, leadIdString, contactEmailString);
       } catch (pdfError) {
         console.error('Error generating PDF:', (pdfError as Error).message);
-        await logToSupabase({ original_lead_id: specificLeadIdToTest || lead?.normalized_lead_id || 'N/A', property_address: lead?.property_address || 'N/A', email_status: 'ERROR_SYSTEM', email_error_message: `PDF generation failed: ${(pdfError as Error).message}`, campaign_id: null });
+        await logToSupabase({ original_lead_id: specificLeadIdToTest || lead.id || 'N/A', property_address: lead?.property_address || 'N/A', email_status: 'ERROR_SYSTEM', email_error_message: `Email sending failed: ${(pdfError as Error).message}`, campaign_id: null });
         return NextResponse.json({ success: false, error: 'Failed to generate PDF.', lead_id: leadIdForApiResponse, details: (pdfError as Error).message }, { status: 500 });
       }
     }
-    
-    // 6. Load Inline Logo
+
     let logoBuffer: Buffer | undefined;
     let logoContentType: string | undefined;
     try {
-        const logoPath = path.join(templateDir, 'assets', 'logo.png'); // Adjust path as needed
-        logoBuffer = await fs.readFile(logoPath);
-        logoContentType = 'image/png'; // Or detect dynamically
+      const logoPath = path.join(templateDir, 'logo.png'); // Assuming logo.png is directly in templateDir based on user file list
+      logoBuffer = await fs.readFile(logoPath);
+      logoContentType = 'image/png';
     } catch (logoError) {
-        console.warn('Could not load inline logo:', (logoError as Error).message);
-        // Continue without logo if it fails, or handle as critical error
+      console.warn('Could not load inline logo:', (logoError as Error).message);
     }
 
-
-    // 7. Create MIME Message
     const emailMime = createMimeMessage(
       intendedRecipientEmail,
       activeSenderEmail,
       activeSenderName,
-      emailSubject,
-      emailHtmlBody,
-      pdfBuffer ? { filename: `LOI_${lead.property_address?.replace(/\s+/g, '_') || 'property'}.pdf`, content: pdfBuffer } : undefined,
+      subject,
+      htmlBody,
+      pdfBuffer ? { filename: `LOI_${String(lead.property_address)?.replace(/\s+/g, '_') || 'property'}.pdf`, content: pdfBuffer } : undefined,
       logoBuffer && logoContentType ? { contentId: templateContext.logo_cid, contentType: logoContentType, content: logoBuffer } : undefined
     );
 
-// 8. Send Email via Gmail API
-try {
-  const attachments = [];
-  if (pdfBuffer) {
-    attachments.push({
-      filename: `LOI_${lead.property_address?.replace(/\s+/g, '_') || 'property'}.pdf`,
-      content: pdfBuffer,
-    });
-  }
-  // Note: The current gmailService.sendEmail handles multipart/mixed, best for attachments.
-  // Inline images (like the logo) typically use multipart/related.
-  // For simplicity, we are not passing the inline logo to this sendEmail function.
-  // If inline logo is critical, gmailService.ts would need adjustment or a different approach.
+    // 8. Send Email via Gmail API
+    try {
+      const attachments = [];
+      if (pdfBuffer) {
+        attachments.push({
+          filename: `LOI_${String(lead.property_address)?.replace(/\s+/g, '_') || 'property'}.pdf`,
+          content: pdfBuffer,
+        });
+      }
+      // Note: The current gmailService.sendEmail handles multipart/mixed, best for attachments.
+      // Inline images (like the logo) typically use multipart/related.
+      // For simplicity, we are not passing the inline logo to this sendEmail function.
+      // If inline logo is critical, gmailService.ts would need adjustment or a different approach.
 
-  const emailResult = await sendGmail(
-    activeSenderEmail,    // impersonatedUserEmail
-    intendedRecipientEmail, // recipientEmail
-    emailSubject,         // subject
-    emailHtmlBody,        // htmlBody
-    attachments           // attachments array
-  );
+      const emailResult = await sendGmailService(activeSenderEmail, activeSenderName, intendedRecipientEmail, subject, htmlBody, pdfBuffer ? { filename: `LOI_${String(lead.property_address)?.replace(/\s+/g, '_') || 'property'}.pdf`, content: pdfBuffer } : undefined, logoBuffer && logoContentType ? { contentId: templateContext.logo_cid, contentType: logoContentType, content: logoBuffer } : undefined);
 
-  if (emailResult.success) {
-    await logToSupabase({
-      original_lead_id: lead.normalized_lead_id,
-      contact_name: recipientName,
-      contact_email: intendedRecipientEmail,
-      property_address: lead.property_address,
-      // ... (other fields for logging success as before)
-      email_status: 'SENT_TEST',
-      email_sent_at: new Date().toISOString(),
-      campaign_id: 'TEST_EMAIL_CAMPAIGN',
-    });
+      if (emailResult.success) {
+        await logToSupabase({
+          original_lead_id: lead.id ?? null, // Pass null if undefined
+          contact_name: recipientName,
+          contact_email: intendedRecipientEmail,
+          property_address: lead.property_address,
+          // ... (other fields for logging success as before)
+          email_status: 'SENT_TEST',
+          email_sent_at: new Date().toISOString(),
+          campaign_id: 'TEST_EMAIL_CAMPAIGN',
+        });
 
-    return NextResponse.json({
-      success: true,
-      message: `Test email sent successfully to ${intendedRecipientEmail} from ${activeSenderEmail}.`,
-      lead_id: leadIdForApiResponse,
-      sender_email: activeSenderEmail,
-      recipient_email: intendedRecipientEmail,
-      subject: emailSubject,
-      messageId: emailResult.messageId, // from sendGmail result
-    });
-  } else {
-    throw emailResult.error || new Error("Unknown error from sendGmail");
-  }
+        return NextResponse.json({
+          success: true,
+          message: `Test email sent successfully to ${intendedRecipientEmail} from ${activeSenderEmail}.`,
+          lead_id: leadIdForApiResponse,
+          sender_email: activeSenderEmail,
+          recipient_email: intendedRecipientEmail,
+          subject: subject,
+          messageId: emailResult.messageId, // from sendGmail result
+        });
+      } else {
+        throw emailResult.error || new Error("Unknown error from sendGmail");
+      }
 
-} catch (emailError) {
-  console.error('Error sending email:', (emailError as Error).message);
-  const errorMessage = (emailError as Error).message;
-  await logToSupabase({
-    original_lead_id: lead.normalized_lead_id,
-    contact_email: intendedRecipientEmail,
-    email_status: 'FAILED_SENDING',
-    email_error_message: errorMessage,
-    campaign_id: 'TEST_EMAIL_CAMPAIGN',
-  });
-  return NextResponse.json({ success: false, error: 'Failed to send email via Gmail service.', lead_id: leadIdForApiResponse, details: errorMessage }, { status: 500 });
-}
+    } catch (emailError) {
+      console.error('Error sending email:', (emailError as Error).message);
+      const errorMessage = (emailError as Error).message;
+      await logToSupabase({
+        original_lead_id: lead.id,
+        contact_email: intendedRecipientEmail,
+        email_status: 'FAILED_SENDING',
+        email_error_message: errorMessage,
+        campaign_id: 'TEST_EMAIL_CAMPAIGN',
+      });
+      return NextResponse.json({ success: false, error: 'Failed to send email via Gmail service.', lead_id: leadIdForApiResponse, details: (emailError as Error).message }, { status: 500 });
+    }
 
   } catch (error) {
     console.error('Overall error in test-email handler:', (error as Error).message);
@@ -429,6 +466,6 @@ try {
     if (!(error instanceof Error && (error.message.includes("fetching active sender") || error.message.includes("fetching lead")))) {
         await logToSupabase({ email_status: 'ERROR_UNHANDLED', email_error_message: errorMessage, market_region: marketRegionNormalizedName || 'unknown' });
     }
-    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
+    return NextResponse.json({ success: false, error: `An unexpected error occurred: ${(error as Error).message}` }, { status: 500 });
   }
 }
