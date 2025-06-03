@@ -49,10 +49,26 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
       }
     } else {
       // If logged in, check role-based redirection
-      const redirectPath = getRedirectPath(role, pathname);
-      if (redirectPath) {
+      let determinedRedirectPath: string | null = null;
+
+      if (typeof role === 'string') {
+        // Role is a string, pass it to getRedirectPath.
+        determinedRedirectPath = getRedirectPath(role, pathname);
+      } else {
+        // Role is null (or undefined). Replicate the logic from getRedirectPath for a null role.
+        // Original getRedirectPath logic for !role:
+        // if (!role && currentPath !== '/') { return '/'; }
+        // return null;
+        if (pathname !== '/') { // currentPath is pathname
+          determinedRedirectPath = '/';
+        } else {
+          determinedRedirectPath = null;
+        }
+      }
+
+      if (determinedRedirectPath) {
         redirectHandledRef.current = true;
-        window.location.href = redirectPath;
+        window.location.href = determinedRedirectPath;
       }
     }
     

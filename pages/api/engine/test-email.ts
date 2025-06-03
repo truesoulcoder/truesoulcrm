@@ -1,22 +1,25 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs/promises';
 import path from 'path';
-import nunjucks from 'nunjucks';
+
+import { configure as nunjucksConfigure } from 'nunjucks';
+
+import { generateLoiPdf } from './_pdfUtils';
 import {
   getSupabaseClient,
   getGmailService,
   logToSupabase,
   isValidEmail,
 } from './_utils';
-import { generateLoiPdf } from './_pdfUtils';
+
+import type { NextApiRequest, NextApiResponse } from 'next';
 
 // Nunjucks environment setup (can be shared if multiple routes use Nunjucks)
-const templateDir = path.join(process.cwd(), 'pages', 'api', 'eli5-engine', 'templates');
-nunjucks.configure(templateDir, { autoescape: true });
+const templateDir = path.join(process.cwd(), 'pages', 'api', 'engine', 'templates');
+const nunjucksEnv = nunjucksConfigure(templateDir, { autoescape: true });
 
 // Hardcoded sender details (replace with dynamic loading or env variables later)
-// const TEST_SENDER_EMAIL = process.env.TEST_SENDER_EMAIL || 'chrisphillips@truesoulpartners.com'; // Ensure this is a valid sender for the Gmail service
-// const TEST_SENDER_NAME = process.env.TEST_SENDER_NAME || 'Chris Phillips';
+const TEST_SENDER_EMAIL = process.env.TEST_SENDER_EMAIL || 'chrisphillips@truesoulpartners.com'; // Ensure this is a valid sender for the Gmail service
+const TEST_SENDER_NAME = process.env.TEST_SENDER_NAME || 'Chris Phillips';
 // Hardcoded recipient for testing (replace with dynamic or lead's email later)
 const TEST_RECIPIENT_EMAIL = process.env.TEST_RECIPIENT_EMAIL || 'test-recipient@example.com';
 
@@ -70,12 +73,19 @@ const createMimeMessage = (
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { marketRegionNormalizedName, /* other potential body params like leadId for specific lead testing */ } = req.body;
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
   const supabase = getSupabaseClient();
+
+  if (!marketRegionNormalizedName || typeof marketRegionNormalizedName !== 'string' || marketRegionNormalizedName.trim() === '') {
+    return res.status(400).json({ error: 'marketRegionNormalizedName is required and must be a non-empty string.' });
+  }
+  const leadTableName = `${marketRegionNormalizedName.trim()}_fine_cut_leads`;
+
   // const leadId = `test-lead-${Date.now()}`; // Placeholder lead ID - will be replaced by fetched lead's ID
 
   try {
@@ -105,15 +115,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const activeSenderName = fetchedSenderName;
     // const senderCredentials = sender.credentials_json; // Stored for future use if needed for getGmailService
 
-    // 2. Fetch Sample Lead from useful_leads (adjusted numbering)
+    // 2. Fetch Sample Lead from the market-specific fine_cut_leads table
+    console.log(`Fetching lead from table: ${leadTableName}`); // For debugging
     const { data: lead, error: leadError } = await supabase
-      .from('useful_leads') // Changed table name
+      .from(leadTableName) // Dynamically set table name
       .select('*')
-      .limit(1) // Fetch the first available lead
-      .maybeSingle(); // Return single row or null, no error if table empty or multiple rows (due to limit)
+      // Consider adding filters here if needed, e.g., to ensure the lead has an email
+      // or hasn't been processed, etc. For now, taking the first one.
+      .limit(1) 
+      .maybeSingle();
 
-    if (leadError) throw new Error(`Error fetching lead from useful_leads: ${leadError.message}`);
-    if (!lead) throw new Error('No lead found in useful_leads table for testing.');
+    if (leadError) {
+      console.error(`Supabase error fetching lead from ${leadTableName}:`, leadError);
+      throw new Error(`Error fetching lead from ${leadTableName}: ${leadError.message}`);
+    }
+    if (!lead) {
+      console.warn(`No lead found in ${leadTableName} table for testing.`);
+      throw new Error(`No lead found in ${leadTableName} table for testing.`);
+    }
 
     // ULTRA CRITICAL FIX: Ensure contact_name is a string immediately after fetch
     console.log('DEBUG: contact_name BEFORE mutation on lead object:', JSON.stringify(lead.contact_name), typeof lead.contact_name);
@@ -141,20 +160,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const value = lead[key]; // lead.contact_name is now guaranteed to be a string here by the above mutation
       if (key === 'contact_name') {
         if (String(value).trim() === '') { // Ensure value is treated as string for trim
-          missingFields.push(key);
+          missingFields.push(String(key));
         }
       } else if (key === 'assessed_total') {
         if (value === null || typeof value === 'undefined') {
-          missingFields.push(key);
+          missingFields.push(String(key));
         } else {
           const numValue = parseFloat(String(value));
           if (isNaN(numValue) || numValue <= 0) {
-            missingFields.push(key + ' (must be a positive number)');
+            missingFields.push(`${String(key)} (must be a positive number)`);
           }
         }
       } else { // For property_address, property_city, property_state
         if (value === null || typeof value === 'undefined' || (typeof value === 'string' && String(value).trim() === '')) {
-          missingFields.push(key);
+          missingFields.push(String(key));
         }
       }
     });
@@ -313,8 +332,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 
     // 5. Personalize Templates (Subject and Body)
-    const emailSubject = nunjucks.renderString(rawSubjectTemplate, templateData);
-    const emailBodyHtml = nunjucks.renderString(rawBodyTemplate, templateData);
+    const emailSubject = nunjucksEnv.renderString(rawSubjectTemplate, templateData);
+    const emailBodyHtml = nunjucksEnv.renderString(rawBodyTemplate, templateData);
 
     // 6. Generate PDF
     console.log('DEBUG_TESTEMAIL: About to call generateLoiPdf.');

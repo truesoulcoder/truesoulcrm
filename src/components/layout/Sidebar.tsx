@@ -13,6 +13,7 @@ import { useUser } from '@/contexts/UserContext'; // Added UserContext import
 
 type ViewPath = {
   dashboard: '/dashboard';
+  enginecontrol: '/enginecontrol';
   campaigns: '/campaigns';
   leads: '/leads';
   senders: '/senders';
@@ -28,6 +29,7 @@ interface MenuItem {
 
 const menuItems: MenuItem[] = [
   { view: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+  { view: 'enginecontrol', icon: <Settings size={20} />, label: 'Engine Control' },
   { view: 'campaigns', icon: <Settings size={20} />, label: 'Campaigns' },
   { view: 'leads', icon: <Users size={20} />, label: 'Upload Leads' },
   { view: 'crm', icon: <Contact size={20} />, label: 'CRM' },
@@ -58,6 +60,7 @@ const Sidebar: React.FC = () => {
   // Map CrmView to route paths
   const viewToPath: ViewPath = {
     dashboard: '/dashboard',
+    enginecontrol: '/enginecontrol',
     campaigns: '/campaigns',
     leads: '/leads',
     senders: '/senders',
@@ -71,7 +74,7 @@ const Sidebar: React.FC = () => {
     if (role === 'superadmin') { // Changed to lowercase
       return menuItems; // superadmin sees all items
     }
-    if (role === 'crmuser') { // Changed to lowercase
+    if (role === 'guest') { // Changed to lowercase
       return menuItems.filter(item => item.view === 'crm'); // crmuser only sees 'CRM'
       // To add 'Settings' for crmuser as well:
       // return menuItems.filter(item => item.view === 'crm' || item.view === 'settings'); 
@@ -98,7 +101,7 @@ const Sidebar: React.FC = () => {
     return (
         <aside className="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col">
             <div className="flex items-center justify-center mb-8">
-                <Image src={'/default-logo.svg'} alt={'Company Logo'} width={120} height={40} priority />
+                <Image src={'/logo.png'} alt={'Company Logo'} width={120} height={40} priority />
             </div>
             <div className="mt-auto">
                 <p className="text-xs text-center text-base-content/70">
@@ -126,7 +129,7 @@ const Sidebar: React.FC = () => {
             <Link
               href={viewToPath[item.view]}
               className={clsx(
-                'flex items-center p-2 rounded-lg hover:bg-primary hover:text-primary-content transition-colors duration-200 w-full',
+                'flex items-center p-3 rounded-lg hover:bg-primary hover:text-primary-content transition-colors duration-200 w-full no-underline text-base',
                 pathname === viewToPath[item.view] ? 'bg-primary text-primary-content font-semibold' : 'text-base-content'
               )}
             >

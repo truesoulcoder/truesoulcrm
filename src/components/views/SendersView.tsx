@@ -30,8 +30,8 @@ const SendersView: React.FC = () => {
 
   // Filter senders based on search term
   const filteredSenders = senders.filter(sender =>
-    sender.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sender.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    sender.sender_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    sender.sender_email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Fetch senders from the API
@@ -410,8 +410,8 @@ const SendersView: React.FC = () => {
               <tbody>
                 {filteredSenders.map((sender) => (
                   <tr key={sender.id} className="hover">
-                    <td className="font-medium">{sender.name}</td>
-                    <td>{sender.email}</td>
+                    <td className="font-medium">{sender.sender_name}</td>
+                    <td>{sender.sender_email}</td>
                     <td className="text-center">
                       <button
                         className={`btn btn-xs ${sender.is_active ? 'btn-success' : 'btn-error'}`}
@@ -467,7 +467,7 @@ const SendersView: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  name="name"
+                  name="sender_name"
                   className="input input-bordered w-full"
                   value={senderFormData.sender_name}
                   onChange={handleSenderFormChange}
@@ -480,7 +480,7 @@ const SendersView: React.FC = () => {
                 </label>
                 <input
                   type="email"
-                  name="email"
+                  name="sender_email"
                   className="input input-bordered w-full"
                   value={senderFormData.sender_email}
                   onChange={handleSenderFormChange}

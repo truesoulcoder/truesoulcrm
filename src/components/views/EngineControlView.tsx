@@ -2,13 +2,12 @@
 
 import { PlayCircle, StopCircle, Mail, AlertTriangle, Info, CheckCircle, RefreshCw, MapPin } from 'lucide-react';
 import React, { useState, useEffect, useCallback, useRef, JSX } from 'react';
-import { Button, Card, Alert, Input } from 'react-daisyui'; // Added Input
 
 import { supabase } from '@/lib/supabase/client';
 import { Database } from '@/types/supabase';
 
-// Assuming eli5_email_log is the primary source of real-time messages for now
-type Eli5EmailLogEntry = Database['public']['Tables']['eli5_email_log']['Row'];
+// Assuming _email_log is the primary source of real-time messages for now
+type EmailLogEntry = Database['public']['Tables']['email_log']['Row'];
 
 interface LogEntry {
   id: string;
@@ -44,9 +43,19 @@ interface StopCampaignResponse {
   error?: string;
 }
 
-const Eli5EngineControlView: React.FC = (): JSX.Element => {
+interface MarketRegion {
+  id: string;
+  name: string;
+  normalized_name: string;
+  lead_count: number;
+}
+
+const EngineControlView: React.FC = (): JSX.Element => {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('idle');
-  const [marketRegion, setMarketRegion] = useState<string>('FLORIDA'); // Added marketRegion state
+  const [marketRegion, setMarketRegion] = useState<string>('FLORIDA'); // For StartEngine
+  const [marketRegionsList, setMarketRegionsList] = useState<MarketRegion[]>([]);
+  const [selectedTestMarketRegion, setSelectedTestMarketRegion] = useState<string>('');
+  const [isLoadingMarketRegions, setIsLoadingMarketRegions] = useState<boolean>(true);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,22 +80,52 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
   // Placeholder for initial engine status check (if needed)
   useEffect(() => {
     // You might want to fetch the current engine status from an RPC or a dedicated table on load
-    addLog('ELI5 Engine Control Panel Initialized.', 'info');
+    addLog(' Engine Control Panel Initialized.', 'info');
     // Example: async function fetchEngineStatus() { ... setEngineStatus ... } 
     // void fetchEngineStatus();
+
+    // Fetch market regions for the test email selector
+    const fetchMarketRegionsForTest = async () => {
+      addLog('Fetching market regions for test email selector...', 'info');
+      setIsLoadingMarketRegions(true);
+      try {
+        const response = await fetch('/api/market-regions');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({})); // Try to parse error, default to empty obj
+          throw new Error(errorData.error || `Failed to fetch market regions: ${response.statusText}`);
+        }
+        const data: MarketRegion[] | { error: string } = await response.json();
+        if ('error' in data) {
+          throw new Error((data as { error: string }).error);
+        }
+        setMarketRegionsList(data as MarketRegion[]);
+        if ((data as MarketRegion[]).length > 0) {
+          setSelectedTestMarketRegion((data as MarketRegion[])[0].normalized_name); // Default to first region
+          addLog(`Market regions loaded. Default test region: ${(data as MarketRegion[])[0].name}`, 'info');
+        } else {
+          addLog('No market regions found.', 'warning');
+        }
+      } catch (err: any) {
+        addLog(`Error fetching market regions: ${err.message}`, 'error');
+        setError(`Failed to load market regions: ${err.message}`);
+      } finally {
+        setIsLoadingMarketRegions(false);
+      }
+    };
+    void fetchMarketRegionsForTest();
   }, [addLog]);
 
-  // Real-time subscription to eli5_email_log for console updates
+  // Real-time subscription to _email_log for console updates
   useEffect(() => {
-    const eli5LogChannelName = 'eli5-engine-realtime-log-channel';
+    const engineLogChannelName = 'engine-realtime-log-channel';
     const subscription = supabase
-      .channel(eli5LogChannelName)
+      .channel(engineLogChannelName)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'eli5_email_log' }, // Listen to all changes for now
+        { event: '*', schema: 'public', table: 'email_log' }, // Listen to all changes for now
         (payload) => {
-          const record = payload.new as Eli5EmailLogEntry;
-          let message = `ELI5 Log (${payload.eventType}): `; 
+          const record = payload.new as EmailLogEntry;
+          let message = ` Log (${payload.eventType}): `; 
           if (record && record.contact_email) {
             message += `Email to ${record.contact_email} - Status: ${record.email_status}`;
             if (record.email_error_message) message += `, Error: ${record.email_error_message}`;
@@ -98,31 +137,36 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
       )
       .subscribe((status: string, err?: { message: string }) => {
         if (status === 'SUBSCRIBED') {
-          addLog('Connected to ELI5 Engine real-time log stream.', 'success');
+          addLog('Connected to  Engine real-time log stream.', 'success');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          const errorMessage = `ELI5 Log Stream Error: ${err?.message || 'Unknown error'}`;
+          const errorMessage = ` Log Stream Error: ${err?.message || 'Unknown error'}`;
           addLog(errorMessage, 'error');
           setError(errorMessage);
         }
       });
 
     return () => {
-      addLog('Disconnecting from ELI5 Engine log stream...', 'info');
+      addLog('Disconnecting from  Engine log stream...', 'info');
       if (subscription) void supabase.removeChannel(subscription);
     };
   }, [addLog]);
 
   const handleSendTestEmail = async () => {
-    addLog('Sending request to /api/eli5-engine/test-email...', 'info');
+    if (!selectedTestMarketRegion) {
+      addLog('Please select a market region for the test email.', 'warning');
+      setError('A market region must be selected to send a test email.');
+      return;
+    }
+    addLog('Sending request to /api/-engine/test-email...', 'info');
     setIsLoading(true);
     setEngineStatus('test_sending');
     setError(null);
 
     try {
-      const response = await fetch('/api/eli5-engine/test-email', {
+      const response = await fetch('/api/engine/test-email', { // Corrected API path
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // No body needed for test-email as per current API design
+        body: JSON.stringify({ marketRegionNormalizedName: selectedTestMarketRegion }),
       });
 
       const result: TestEmailResponse = await response.json();
@@ -162,7 +206,7 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
       setError(msg);
       return;
     }
-    addLog(`Initiating ELI5 Engine start sequence for market region: ${marketRegion}...`, 'info');
+    addLog(`Initiating  Engine start sequence for market region: ${marketRegion}...`, 'info');
     setIsLoading(true);
     setEngineStatus('starting');
     setError(null);
@@ -170,7 +214,7 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
     try {
       // Step 1: Call resume-campaign
       addLog('Attempting to resume campaign processing flag...', 'info');
-      const resumeResponse = await fetch('/api/eli5-engine/resume-campaign', { method: 'POST' });
+      const resumeResponse = await fetch('/api/-engine/resume-campaign', { method: 'POST' });
       const resumeResult = await resumeResponse.json();
 
       if (!resumeResponse.ok || !resumeResult.success) {
@@ -179,8 +223,8 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
       addLog('Campaign processing flag successfully set to RESUMED.', 'success');
 
       // Step 2: Call start-campaign
-      addLog(`Sending request to /api/eli5-engine/start-campaign for market: ${marketRegion}...`, 'info');
-      const startResponse = await fetch('/api/eli5-engine/start-campaign', {
+      addLog(`Sending request to /api/-engine/start-campaign for market: ${marketRegion}...`, 'info');
+      const startResponse = await fetch('/api/-engine/start-campaign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ market_region: marketRegion /*, limit_per_run: 10 */ }), // limit_per_run is optional
@@ -215,12 +259,12 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
   };
 
   const handleStopEngine = async () => {
-    addLog('Sending request to /api/eli5-engine/stop-campaign...', 'info');
+    addLog('Sending request to /api/-engine/stop-campaign...', 'info');
     setIsLoading(true);
     setEngineStatus('stopping');
     setError(null);
     try {
-      const response = await fetch('/api/eli5-engine/stop-campaign', { method: 'POST' });
+      const response = await fetch('/api/-engine/stop-campaign', { method: 'POST' });
       const result: StopCampaignResponse = await response.json();
 
       if (!response.ok) {
@@ -313,23 +357,24 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
 
   return (
     <div className="p-4 md:p-6 min-h-screen bg-base-200">
-      <h1 className="text-3xl font-bold mb-6 text-center">ELI5 Engine Control Panel</h1>
+      <h1 className="text-3xl font-bold mb-6 text-center"> Engine Control Panel</h1>
 
       {error && (
-        <Alert status="error" icon={<AlertTriangle />} className="mb-4">
-          {error}
-        </Alert>
+        <div className="alert alert-error mb-4">
+          <AlertTriangle className="h-5 w-5" />
+          <span>{error}</span>
+        </div>
       )}
 
-      <Card className="card bordered shadow-lg bg-base-100 mb-6">
-        <Card.Body className="p-4">
+      <div className="card bordered shadow-lg bg-base-100 mb-6">
+        <div className="card-body p-4">
           <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">Engine Status: <span className={`font-bold ${getStatusColor(engineStatus)}`}>{engineStatus.toUpperCase()}</span></h2>
             <div className="form-control w-full sm:w-auto mt-3 sm:mt-0">
               <label className="label" htmlFor="marketRegionInput">
                 <span className="label-text flex items-center"><MapPin size={16} className="mr-1" /> Market Region</span>
               </label>
-              <Input 
+              <input 
                 id="marketRegionInput"
                 type="text" 
                 placeholder="e.g., Austin" 
@@ -341,42 +386,73 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Button 
-              color="primary" 
-              startIcon={<Mail />} 
-              onClick={handleTestEmailClick}
-              loading={isLoading && engineStatus === 'test_sending'}
-              disabled={isLoading && engineStatus !== 'test_sending'}
-            >
-              Send Test Email
-            </Button>
-            <Button 
-              color="success" 
-              startIcon={<PlayCircle />} 
+            <div className="flex flex-col space-y-2">
+              <div>
+                <label htmlFor="testMarketRegionSelect" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Test Email Market Region:
+                </label>
+                {isLoadingMarketRegions ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading regions...</p>
+                ) : marketRegionsList.length > 0 ? (
+                  <select 
+                    id="testMarketRegionSelect"
+                    value={selectedTestMarketRegion}
+                    onChange={(e) => setSelectedTestMarketRegion(e.target.value)}
+                    disabled={isLoading || engineStatus === 'test_sending' || engineStatus === 'running'}
+                    className="select select-bordered select-sm w-full max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  >
+                    {marketRegionsList.map((region) => (
+                      <option key={region.id} value={region.normalized_name}>
+                        {region.name} ({region.lead_count} leads)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm text-red-500 dark:text-red-400">No market regions loaded.</p>
+                )}
+              </div>
+              <button 
+                onClick={handleSendTestEmail} 
+                disabled={isLoading || engineStatus === 'running' || engineStatus === 'starting' || engineStatus === 'stopping' || engineStatus === 'test_sending' || isLoadingMarketRegions || !selectedTestMarketRegion}
+                className="btn btn-warning btn-sm shadow-md hover:shadow-lg transition-shadow duration-150 ease-in-out flex items-center space-x-2 self-start"
+              >
+                <Mail size={18} />
+                <span>Send Test Email</span>
+              </button>
+            </div>
+            <button 
+              className="btn btn-success" 
               onClick={handleStartClick}
-              loading={isLoading && engineStatus === 'starting'}
-              disabled={isLoading && engineStatus !== 'starting' || engineStatus === 'running' || !marketRegion.trim()}
+              disabled={(isLoading && engineStatus !== 'starting') || engineStatus === 'running' || !marketRegion.trim()}
             >
+              {isLoading && engineStatus === 'starting' ? (
+                <span className="loading loading-spinner loading-xs"></span>
+              ) : (
+                <PlayCircle className="mr-2 h-5 w-5" />
+              )}
               Start Engine
-            </Button>
-            <Button 
-              color="error" 
-              startIcon={<StopCircle />} 
+            </button>
+            <button 
+              className="btn btn-error" 
               onClick={handleStopClick}
-              loading={isLoading && engineStatus === 'stopping'}
-              disabled={isLoading && engineStatus !== 'stopping' || engineStatus === 'idle' || engineStatus === 'stopped'}
+              disabled={(isLoading && engineStatus !== 'stopping') || engineStatus === 'idle' || engineStatus === 'stopped'}
             >
+              {isLoading && engineStatus === 'stopping' ? (
+                <span className="loading loading-spinner loading-xs"></span>
+              ) : (
+                <StopCircle className="mr-2 h-5 w-5" />
+              )}
               Stop Engine
-            </Button>
+            </button>
           </div>
-        </Card.Body>
-      </Card>
+        </div>
+      </div>
 
-      <Card className="card bordered shadow-lg bg-base-100">
-        <Card.Body className="p-4">
+      <div className="card bordered shadow-lg bg-base-100">
+        <div className="card-body p-4">
           <h2 className="text-xl font-semibold mb-3">Real-time Engine Log</h2>
           <div className="h-96 overflow-y-auto bg-neutral text-neutral-content p-3 rounded-md text-sm font-mono">
-            {consoleLogs.length === 0 && <p>No log messages yet. Waiting for ELI5 Engine activity...</p>}
+            {consoleLogs.length === 0 && <p>No log messages yet. Waiting for  Engine activity...</p>}
             {consoleLogs.map(log => (
               <div key={log.id} className={`whitespace-pre-wrap ${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : log.type === 'warning' ? 'text-yellow-400' : ''}`}>
                 <span className="text-gray-500">{new Date(log.timestamp).toLocaleTimeString()} | </span>
@@ -386,10 +462,10 @@ const Eli5EngineControlView: React.FC = (): JSX.Element => {
             ))}
             <div ref={consoleEndRef} />
           </div>
-        </Card.Body>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default Eli5EngineControlView;
+export default EngineControlView;

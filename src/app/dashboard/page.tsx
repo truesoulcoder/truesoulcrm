@@ -30,17 +30,19 @@ const Statistic = ({
   trend,
   trendValue
 }: StatisticProps) => (
-  <div className={`stat ${className}`}>
+  <div className={`stat ${className} flex flex-row items-center gap-4 p-4`}> {/* Added flex, items-center, gap, and padding */} 
     <div className="stat-figure text-primary">
       {prefix}
     </div>
-    <div className="stat-title">{title}</div>
-    <div className="stat-value text-2xl">{value}{suffix}</div>
-    {trend && trendValue && (
-      <div className={`stat-desc ${trend === 'up' ? 'text-success' : 'text-error'}`}>
-        {trend === 'up' ? '↗︎' : '↘︎'} {trendValue}
-      </div>
-    )}
+    <div className="flex-grow"> {/* Added flex-grow to allow text block to take available space */} 
+      <div className="stat-title">{title}</div>
+      <div className="stat-value text-2xl">{value}{suffix}</div>
+      {trend && trendValue && (
+        <div className={`stat-desc ${trend === 'up' ? 'text-success' : 'text-error'}`}>
+          {trend === 'up' ? '↗︎' : '↘︎'} {trendValue}
+        </div>
+      )}
+    </div>
   </div>
 );
 
@@ -76,7 +78,7 @@ const DashboardPage = () => {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="flex flex-wrap justify-start gap-6 mb-8">
         <div className="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
           <div className="card-body p-6">
             <Statistic
