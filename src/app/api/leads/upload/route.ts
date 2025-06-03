@@ -417,18 +417,18 @@ export async function POST(request: NextRequest) {
       const { data: marketRegionUpsertData, error: marketRegionUpsertError } = await supabase
         .from('market_regions')
         .upsert({
-          name: tsNormalizedMarketRegion,
-          raw_name: rawMarketRegionFromForm,
+          name: rawMarketRegionFromForm, // Corrected: Use 'name' for the raw form input
           lead_count: totalProcessedLeads,
           created_by: userId,
           last_processed_at: new Date().toISOString(),
-        }, { onConflict: 'name' })
+          // 'normalized_name' is a generated column and should not be explicitly set here
+        }, { onConflict: 'name' }) // Corrected: Use 'name' for conflict resolution as it's unique
         .select();
 
       if (marketRegionUpsertError) {
         console.error(`API Error: Failed to upsert into market_regions for ${tsNormalizedMarketRegion}:`, marketRegionUpsertError);
       } else {
-        console.log(`API: Successfully upserted market region ${tsNormalizedMarketRegion}. Data:`, marketRegionUpsertData);
+        console.log(`API: Successfully upserted market region ${rawMarketRegionFromForm}. Data:`, marketRegionUpsertData);
       }
 
       console.log('API: Attempting to truncate normalized_leads table...');
