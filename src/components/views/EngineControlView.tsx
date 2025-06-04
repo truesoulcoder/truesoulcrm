@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase/client';
 import { Database } from '@/types/supabase';
 import TimePicker from '@/components/ui/TimePicker'; // Added import for TimePicker
 
+const MAX_DISPLAY_LOGS = 10;
+
 // Assuming engine_log is the primary source of real-time messages for now
 type EngineLogEntry = Database['public']['Tables']['engine_log']['Row'];
 
@@ -234,8 +236,11 @@ const EngineControlView: React.FC = (): JSX.Element => {
             type: newRawLog.type as LogEntry['type'],
             data: newRawLog.data,
           };
-          // Append new log to the end of the existing logs
-          setConsoleLogs((prevLogs) => [...prevLogs, newLogEntry]);
+          // Append new log and then slice to keep only the last MAX_DISPLAY_LOGS
+          setConsoleLogs((prevLogs) => {
+            const updatedLogs = [...prevLogs, newLogEntry];
+            return updatedLogs.slice(-MAX_DISPLAY_LOGS);
+          });
         }
       )
       .subscribe((status, err) => {
@@ -243,15 +248,19 @@ const EngineControlView: React.FC = (): JSX.Element => {
           console.log('Successfully subscribed to engine_log changes!');
         } else if (status === 'CHANNEL_ERROR' || err) {
           console.error('Engine log subscription error:', err);
-          setConsoleLogs(prevLogs => [
-            ...prevLogs,
-            {
+          setConsoleLogs(prevLogs => {
+            const newErrorLog: LogEntry = {
               id: `${Date.now().toString()}_sub_error`,
               timestamp: new Date().toISOString(),
               message: `Log subscription error: ${err?.message || 'Unknown error'}`,
               type: 'error'
-            }
-          ]);
+            };
+            const updatedLogs = [
+              ...prevLogs,
+              newErrorLog
+            ];
+            return updatedLogs.slice(-MAX_DISPLAY_LOGS);
+          });
         }
       });
 
@@ -262,17 +271,20 @@ const EngineControlView: React.FC = (): JSX.Element => {
   }, []); // Empty dependency array, supabase client is stable
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: Record<string, unknown>) => {
-    setConsoleLogs(prevLogs => [
-      ...prevLogs,
-      {
-        id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)}`,
-        timestamp: new Date().toISOString(),
-        message,
-        type,
-        data,
-      },
-    ]);
-  }, []);
+    setConsoleLogs(prevLogs => {
+      const updatedLogs = [
+        ...prevLogs,
+        {
+          id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)}`,
+          timestamp: new Date().toISOString(),
+          message,
+          type,
+          data,
+        }
+      ];
+      return updatedLogs.slice(-MAX_DISPLAY_LOGS);
+    });
+  }, []); // MAX_DISPLAY_LOGS is a constant, no need to add to deps
 
   // Scroll to bottom of console
   useEffect(() => {

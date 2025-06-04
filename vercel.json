@@ -7,7 +7,7 @@
     }
   ],
   "functions": {
-    "pages/api/eli5-engine/**/*.ts": {
+    "app/api/engine/send-email/_workflowSteps/fetchAndValidateLead-helper.ts": {
       "maxDuration": 30,
       "memory": 1024
     }
