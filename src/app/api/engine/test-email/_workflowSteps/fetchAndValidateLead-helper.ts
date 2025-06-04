@@ -1,10 +1,20 @@
 // src/app/api/engine/test-email/workflow/fetchAndValidateLead-helper.ts
-import { createAdminServerClient } from '@/utils/supabase-admin';
-import { FineCutLead } from '@/types/supabase';
+import { validateLeadFields } from '@/app/api/engine/test-email/_workflowSteps/_utils'; // Adjusted path
+import { createAdminServerClient } from '@/lib/supabase/server';
 import { logSystemEvent } from '@/services/logService';
-import { validateLeadFields } from '../_utils'; // Adjusted path
+import { FineCutLead } from '@/types/supabase';
+
 
 const MAX_LEAD_FETCH_ATTEMPTS = 20;
+
+function hasMessage(error: unknown): error is { message: string } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as any).message === 'string'
+  );
+}
 
 export async function fetchAndValidateLead(
   supabase: ReturnType<typeof createAdminServerClient>,
@@ -19,8 +29,11 @@ export async function fetchAndValidateLead(
     await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ATTEMPT', message: `Attempting to fetch specific lead ID: ${specificLeadIdToTest} from ${leadTableName}.`, details: { lead_id: specificLeadIdToTest, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
     const { data: specificLead, error: specificLeadError } = await supabase.from(leadTableName).select('*').eq('id', specificLeadIdToTest).maybeSingle<FineCutLead>();
     if (specificLeadError) {
-      await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ERROR', message: `Database error fetching specific lead ID ${specificLeadIdToTest} from ${leadTableName}: ${specificLeadError.message}`, details: { error: specificLeadError, lead_id: specificLeadIdToTest, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
-      throw new Error(`DB error fetching specific lead ${specificLeadIdToTest}: ${specificLeadError.message}`);
+      const errorMsg = hasMessage(specificLeadError)
+        ? specificLeadError.message
+        : JSON.stringify(specificLeadError);
+      await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ERROR', message: `Database error fetching specific lead ID ${specificLeadIdToTest} from ${leadTableName}: ${errorMsg}`, details: { error: specificLeadError, lead_id: specificLeadIdToTest, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
+      throw new Error(`DB error fetching specific lead ${specificLeadIdToTest}: ${errorMsg}`);
     }
     if (!specificLead) {
       await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ERROR', message: `Specific lead ID ${specificLeadIdToTest} not found in ${leadTableName}.`, details: { lead_id: specificLeadIdToTest, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
@@ -32,9 +45,13 @@ export async function fetchAndValidateLead(
     for (let attempt = 0; attempt < MAX_LEAD_FETCH_ATTEMPTS; attempt++) {
       const { data: candidateLeads, error: leadFetchError } = await supabase.from(leadTableName).select('*').order('id', { ascending: true }).range(attempt, attempt);
       if (leadFetchError) {
-        await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ERROR', message: `DB error fetching lead (attempt ${attempt + 1}) from ${leadTableName}: ${leadFetchError.message}`, details: { error: leadFetchError, attempt: attempt + 1, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
-        console.error(`DB error on attempt ${attempt + 1} from ${leadTableName}: ${leadFetchError.message}. Continuing attempts.`);
-        continue; 
+        const errorMsg = hasMessage(leadFetchError)
+          ? leadFetchError.message
+          : JSON.stringify(leadFetchError);
+
+        await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ERROR', message: `DB error fetching lead (attempt ${attempt + 1}) from ${leadTableName}: ${errorMsg}`, details: { error: leadFetchError, attempt: attempt + 1, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
+        console.error(`DB error on attempt ${attempt + 1} from ${leadTableName}: ${errorMsg}. Continuing attempts.`);
+        continue;
       }
       if (!candidateLeads || candidateLeads.length === 0) {
         await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_INFO', message: `No more leads available in ${leadTableName} to check (attempt ${attempt + 1}).`, details: { table: leadTableName, attempt: attempt + 1, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
@@ -56,7 +73,7 @@ export async function fetchAndValidateLead(
     }
   }
 
-  const { isValid, errorMessages, validatedLead } = validateLeadFields(leadToProcess, leadToProcess.id ?? 'unknown'); // Using imported util
+  const { isValid, errorMessages, validatedLead } = validateLeadFields(leadToProcess, leadToProcess?.id ?? 'unknown'); // Using imported util
   if (!isValid || !validatedLead) {
     const leadIdForError = leadToProcess?.id || specificLeadIdToTest || 'unknown';
     await logSystemEvent({ event_type: 'ENGINE_LEAD_VALIDATION_ERROR', message: `Chosen lead ID ${leadIdForError} failed final validation: ${errorMessages.join('; ')}`, details: { lead_id: leadIdForError, errors: errorMessages, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });

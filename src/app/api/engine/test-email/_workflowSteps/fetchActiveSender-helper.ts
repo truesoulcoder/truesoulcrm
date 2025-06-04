@@ -1,6 +1,7 @@
 // src/app/api/engine/test-email/workflow/fetchActiveSender-helper.ts
-import { createAdminServerClient } from '@/utils/supabase-admin';
+import { createAdminServerClient } from '@/lib/supabase/server';
 import { logSystemEvent } from '@/services/logService';
+
 import type { SenderData } from './_types'; // Adjusted path
 
 export async function fetchActiveSender(
@@ -8,7 +9,8 @@ export async function fetchActiveSender(
   campaignId?: string,
   marketRegionNormalizedName?: string
 ): Promise<SenderData> {
-  const { data: sender, error: senderError } = await supabase
+  const client = await supabase;
+  const { data: sender, error: senderError } = await client
     .from('senders')
     .select('sender_email, sender_name, credentials_json, is_default, email, name, created_at')
     .eq('is_active', true)

@@ -1,13 +1,27 @@
 // src/app/api/engine/test-email/workflow/prepareEmailContentAndAssets-helper.ts
 import fs from 'fs/promises';
 import path from 'path';
-import { Environment as NunjucksEnvironment } from 'nunjucks';
-import { FineCutLead } from '@/types/supabase';
-import { logSystemEvent } from '@/services/logService';
-import { generateOfferDetails } from '@/actions/offerCalculations';
-import type { SenderData, EmailAssets } from './_types'; // Adjusted path
-import { extractSubjectAndCleanHtml } from '../_utils'; // Adjusted path
 
+import { Environment as NunjucksEnvironment } from 'nunjucks';
+
+import { generateOfferDetails } from '@/actions/offerCalculations';
+import { extractSubjectAndCleanHtml } from '@/app/api/engine/test-email/_workflowSteps/_utils';
+import { logSystemEvent } from '@/services/logService';
+import { FineCutLead } from '@/types/supabase';
+
+
+import type { SenderData, EmailAssets } from './_types';
+
+/**
+ * Prepares email content and assets for a given lead.
+ * 
+ * @param lead The lead to prepare email content and assets for.
+ * @param sender The sender data.
+ * @param nunjucksEnvInstance The Nunjucks environment instance.
+ * @param baseTemplateDir The base template directory.
+ * @param campaignId The campaign ID (optional).
+ * @returns A promise resolving to the prepared email assets.
+ */
 export async function prepareEmailContentAndAssets(
   lead: FineCutLead,
   sender: SenderData,
@@ -58,6 +72,6 @@ export async function prepareEmailContentAndAssets(
     await logSystemEvent({ event_type: 'ENGINE_ASSET_WARNING', message: `Could not load inline logo (logo.png): ${logoError.message}. Proceeding without logo.`, details: { error: logoError, template_dir: baseTemplateDir }, campaign_id: campaignId, original_lead_id: String(lead.id) });
   }
   
-  await logSystemEvent({ event_type: 'ENGINE_ASSET_PREP_SUCCESS', message: 'Email content and assets prepared successfully.', details: { lead_id: lead.id, subject: subject, has_logo: !!logoBuffer }, campaign_id: campaignId, original_lead_id: String(lead.id) });
+  await logSystemEvent({ event_type: 'ENGINE_ASSET_PREP_SUCCESS', message: 'Email content and assets prepared successfully.', details: { lead_id: lead.id, subject, has_logo: !!logoBuffer }, campaign_id: campaignId, original_lead_id: String(lead.id) });
   return { subject, htmlBody, textBody, templateContext, logoBuffer, logoContentType };
 }

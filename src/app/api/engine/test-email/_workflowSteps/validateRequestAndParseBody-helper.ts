@@ -1,6 +1,8 @@
 // src/app/api/engine/test-email/workflow/validateRequestAndParseBody-helper.ts
 import { NextRequest } from 'next/server';
-import { createAdminServerClient } from '@/utils/supabase-admin';
+
+import { createAdminServerClient } from '@/lib/supabase/server';
+
 import type { RequestPayload } from './_types'; // Adjusted path
 
 export async function validateRequestAndParseBody(request: NextRequest): Promise<{
@@ -48,7 +50,7 @@ export async function validateRequestAndParseBody(request: NextRequest): Promise
     throw new Error(`Validation failed: ${validationErrors.join('; ')}`);
   }
 
-  const supabase = await createAdminServerClient();
+  const supabase = createAdminServerClient();
   return {
     marketRegionNormalizedName: marketRegionNormalizedName.trim(),
     sendPdf,
