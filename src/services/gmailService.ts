@@ -60,7 +60,7 @@ async function sendEmail(
   recipientEmail: string,
   subject: string,
   htmlBody: string,
-  attachments?: { filename: string; content: Buffer }[]
+  attachments?: { filename: string; content: Buffer; contentType?: string; contentId?: string }[]
 ): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: unknown }> {
   try {
     // Ensure Gmail service is initialized
