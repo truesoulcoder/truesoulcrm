@@ -1,20 +1,20 @@
 // src/app/api/engine/test-email/workflow/generatePdfAttachment-helper.ts
-import { FineCutLead } from '@/types/supabase';
 import { generateLoiPdf, PersonalizationData } from '@/services';
 import { logSystemEvent } from '@/services/logService';
+import { FineCutLead } from '@/types/leads';
 
 export async function generatePdfAttachment(
   sendPdf: boolean,
-  templateContext: Record<string, any>,
+  templateContext: Record<string, unknown>,
   lead: FineCutLead,
   specificLeadIdToTest?: string | number,
   campaignId?: string
 ): Promise<Buffer | null> {
   if (!sendPdf) {
-    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_SKIPPED', message: 'PDF generation was skipped as per request (sendPdf is false).', details: { lead_id: lead.id }, campaign_id: campaignId, original_lead_id: String(lead.id) });
+    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_SKIPPED', message: 'PDF generation was skipped as per request (sendPdf is false).', details: { lead_id: lead.id }, campaign_id: campaignId });
     return null;
   }
-  await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_ATTEMPT', message: 'Attempting to generate PDF attachment.', details: { lead_id: lead.id }, campaign_id: campaignId, original_lead_id: String(lead.id) });
+  await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_ATTEMPT', message: 'Attempting to generate PDF attachment.', details: { lead_id: lead.id }, campaign_id: campaignId });
   const personalizationData: PersonalizationData = {
     property_address: String(templateContext.property_address ?? lead.property_address ?? ''),
     property_city: String(templateContext.property_city ?? lead.property_city ?? ''),
@@ -35,11 +35,11 @@ export async function generatePdfAttachment(
   const contactEmailString = String(lead.contact_email || 'unknown_email');
   try {
     const pdfBuffer = await generateLoiPdf(personalizationData, leadIdString, contactEmailString);
-    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_SUCCESS', message: 'PDF attachment generated successfully.', details: { lead_id: lead.id, pdf_size_bytes: pdfBuffer.length }, campaign_id: campaignId, original_lead_id: String(lead.id) });
+    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_SUCCESS', message: 'PDF attachment generated successfully.', details: { lead_id: lead.id, pdf_size_bytes: pdfBuffer?.length }, campaign_id: campaignId });
     return pdfBuffer;
-  } catch (pdfError: any) {
-    console.error('Error generating PDF:', pdfError.message);
-    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_ERROR', message: `Failed to generate PDF: ${pdfError.message}`, details: { error: pdfError, lead_id: lead.id, personalization_keys: Object.keys(personalizationData) }, campaign_id: campaignId, original_lead_id: String(lead.id) });
-    throw new Error(`Failed to generate PDF attachment: ${pdfError.message}`);
+  } catch (pdfError: unknown) {
+    console.error('Error generating PDF:', pdfError);
+    await logSystemEvent({ event_type: 'ENGINE_PDF_GENERATION_ERROR', message: `Failed to generate PDF: ${pdfError}`, details: { error: pdfError, lead_id: lead.id, personalization_keys: Object.keys(personalizationData) }, campaign_id: campaignId });
+    throw new Error(`Failed to generate PDF attachment: ${pdfError}`);
   }
 }

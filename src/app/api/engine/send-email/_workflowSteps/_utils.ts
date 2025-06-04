@@ -4,13 +4,13 @@ import { Environment as NunjucksEnvironment } from 'nunjucks';
 import { isValidEmail as validateEmailFromUtils } from '@/app/api/engine/_utils/_utils';
 import { createAdminServerClient } from '@/lib/supabase/server';
 import { logSystemEvent } from '@/services/logService';
-import { FineCutLead } from '@/types/supabase';
+import { FineCutLead } from '@/types/leads';
 
-import { EmailLogEntry } from './_types'; // Assuming _types.ts is in the same directory
+import { EngineLogEntry } from './_types'; // Assuming _types.ts is in the same directory
 
 export function extractSubjectAndCleanHtml(
   renderedHtmlWithComment: string,
-  context: Record<string, any>,
+  context: Record<string, unknown>,
   nunjucks: NunjucksEnvironment
 ): { subject: string; cleanHtmlBody: string } {
   const subjectRegex = /<!-- SUBJECT: (.*?) -->/s;
@@ -21,7 +21,7 @@ export function extractSubjectAndCleanHtml(
   if (match && match[1]) {
     try {
       subject = nunjucks.renderString(match[1].trim(), context);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`Error rendering subject template: "${match[1].trim()}"`, e);
       subject = match[1].trim() || subject;
     }
@@ -65,7 +65,7 @@ export function validateLeadFields( // Renamed from _validateLeadFields
 
 export async function logToSupabaseTable( // Renamed from logToSupabase for clarity
   supabaseClient: ReturnType<typeof createAdminServerClient>,
-  logData: Partial<EmailLogEntry>,
+  logData: Partial<EngineLogEntry>,
   leadIdForLog?: string | number | null, // Made optional and clearer
   campaignIdForLog?: string | null // Made optional and clearer
 ): Promise<void> {
@@ -81,8 +81,8 @@ export async function logToSupabaseTable( // Renamed from logToSupabase for clar
           campaign_id: campaignIdForLog === null ? undefined : campaignIdForLog, // Use the passed campaignId
       });
     }
-  } catch (e: any) {
-    console.error('Exception in logToSupabaseTable:', e.message);
+  } catch (e: unknown) {
+    console.error('Exception in logToSupabaseTable:', e);
     // Avoid logging a logSystemEvent about a logSystemEvent failure if that's the cause.
     // This function failing should not halt the main process.
   }

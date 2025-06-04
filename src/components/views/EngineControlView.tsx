@@ -246,13 +246,16 @@ const EngineControlView: React.FC = (): JSX.Element => {
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
           console.log('Successfully subscribed to engine_log changes!');
-        } else if (status === 'CHANNEL_ERROR' || err) {
-          console.error('Engine log subscription error:', err);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) { // Added TIMED_OUT
+          console.error('Engine log subscription error. Status:', status, 'Error object:', err); // Log entire error object
           setConsoleLogs(prevLogs => {
             const newErrorLog: LogEntry = {
               id: `${Date.now().toString()}_sub_error`,
               timestamp: new Date().toISOString(),
-              message: `Log subscription error: ${err?.message || 'Unknown error'}`,
+              // Provide more detailed error in the UI log
+              message: status === 'TIMED_OUT'
+                ? `Log subscription timed out. Connection may attempt to re-establish. (Details: ${err ? JSON.stringify(err) : 'No additional error details'})`
+                : `Log subscription error. Status: ${status}. Details: ${err ? JSON.stringify(err) : 'Unknown error'}`, 
               type: 'error'
             };
             const updatedLogs = [
@@ -361,42 +364,6 @@ const EngineControlView: React.FC = (): JSX.Element => {
       }
     };
     void fetchMarketRegionsForTest();
-  }, [addLog]);
-
-  // Real-time subscription to _email_log for console updates
-  useEffect(() => {
-    const engineLogChannelName = 'engine-realtime-log-channel';
-    const subscription = supabase
-      .channel(engineLogChannelName)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'engine_log' }, // Listen to all changes for now
-        (payload) => {
-          const record = payload.new as EngineLogEntry;
-          let message = ` Log (${payload.eventType}): `; 
-          if (record && record.contact_email) {
-            message += `Email to ${record.contact_email} - Status: ${record.email_status}`;
-            if (record.email_error_message) message += `, Error: ${record.email_error_message}`;
-          } else {
-            message += JSON.stringify(payload.new);
-          }
-          addLog('engine', message, payload.new);
-        }
-      )
-      .subscribe((status: string, err?: { message: string }) => {
-        if (status === 'SUBSCRIBED') {
-          addLog('success', 'Connected to  Engine real-time log stream.');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          const errorMessage = ` Log Stream Error: ${err?.message || 'Unknown error'}`;
-          addLog('error', errorMessage);
-          setError(errorMessage);
-        }
-      });
-
-    return () => {
-      addLog('info', 'Disconnecting from  Engine log stream...');
-      if (subscription) void supabase.removeChannel(subscription);
-    };
   }, [addLog]);
 
   const handleScheduleCampaign = async () => {
@@ -546,7 +513,8 @@ const EngineControlView: React.FC = (): JSX.Element => {
       const startResponse = await fetch('/api/engine/start-campaign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ market_region: selectedTestMarketRegion /*, limit_per_run: 10 */ }),
+        body: JSON.stringify({
+          market_region: selectedTestMarketRegion /*, limit_per_run: 10 */ }),
       });
       const startResult: StartCampaignResponse = await startResponse.json();
 
@@ -655,15 +623,35 @@ const EngineControlView: React.FC = (): JSX.Element => {
 
   return (
     <div className="p-4 md:p-6 min-h-screen bg-base-200">
-      <h1 className="text-3xl font-bold mb-6 text-center"> Engine Control Panel</h1>
-
       {error && (
         <div className="alert alert-error mb-4">
           <AlertTriangle className="h-5 w-5" />
           <span>{error}</span>
         </div>
       )}
-
+      <div className="card bordered shadow-lg bg-base-100 mb-6"> {/* Log card - MOVED UP & ADDED mb-6 */}
+        <div className="card-body p-4 md:p-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-xl font-semibold">Real-time Engine Log</h2>
+            {/* Refresh button removed as logs are now real-time via Supabase subscription */}
+          </div>
+          <div className="bg-neutral text-neutral-content rounded-md p-3 h-64 overflow-y-auto text-xs font-mono">
+            {consoleLogs.length === 0 && <p>No log entries yet. Engine activities will appear here.</p>}
+            {consoleLogs.map((log) => (
+              <div key={log.id} className={`flex items-start mb-1 ${log.type === 'error' ? 'text-error' : log.type === 'success' ? 'text-success' : log.type === 'warning' ? 'text-warning' : ''}`}>
+                <span className="mr-2 opacity-70">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                {log.type === 'info' && <Info size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'error' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'success' && <CheckCircle size={14} className="mr-1 mt-px flex-shrink-0" />}
+                {log.type === 'warning' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0 text-warning" />}
+                {log.type === 'engine' && <RefreshCw size={14} className="mr-1 mt-px flex-shrink-0 animate-spin" />} {/* Example for 'engine' type */}
+                <span>{log.message}</span>
+              </div>
+            ))}
+            <div ref={consoleEndRef} />
+          </div>
+        </div>
+      </div>
       <div className="card bordered shadow-lg bg-base-100 mb-6">
         <div className="card-body p-4 md:p-6"> 
           <div className="mb-6"> 
@@ -741,14 +729,27 @@ const EngineControlView: React.FC = (): JSX.Element => {
           {/* Campaign Scheduler Controls */}
           <div className="mt-6 border-t pt-6">
             <h3 className="text-lg font-semibold mb-4">Schedule Campaign</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              {/* Campaign Selection Dropdown */}
-              <div className="form-control w-full">
+
+            {/* Schedule Button - MOVED UP - full width, added mb-4 */}
+            <div className="form-control w-full mb-4">
+              <button 
+                className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
+                onClick={handleScheduleCampaign}
+                disabled={isLoading || !selectedCampaignId || isScheduling}
+              >
+                {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
+              </button>
+            </div>
+
+            {/* Flex row for Campaign Selector and TimePicker - MOVED DOWN, removed mb-4 */}
+            <div className="flex flex-row gap-4 items-baseline">
+              {/* Campaign Selection Dropdown - takes 2/3 width */}
+              <div className="form-control w-2/3">
                 <label className="label">
                   <span className="label-text">Select Campaign</span>
                 </label>
                 <select 
-                  className="select select-bordered w-full"
+                  className="select select-bordered select-sm w-full"
                   value={selectedCampaignId}
                   onChange={(e) => setSelectedCampaignId(e.target.value)}
                   disabled={isLoading || allCampaigns.length === 0}
@@ -762,50 +763,26 @@ const EngineControlView: React.FC = (): JSX.Element => {
                 </select>
               </div>
 
-              {/* TimePicker for Interval */}
-              <div className="form-control w-full">
+              {/* TimePicker for Interval - takes 1/3 width */}
+              <div className="form-control w-1/3">
                 <TimePicker 
-                  label="Start Offset"
+                  inlineLabel="Start Offset"
                   initialInterval={selectedInterval} 
                   onIntervalChange={(interval) => setSelectedInterval(interval)} 
                 />
               </div>
-
-              {/* Schedule Button */}
-              <div className="form-control w-full">
-                <button 
-                  className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
-                  onClick={handleScheduleCampaign}
-                  disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
-                >
-                  {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
-                </button>
-              </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="card bordered shadow-lg bg-base-100">
-        <div className="card-body p-4 md:p-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-xl font-semibold">Real-time Engine Log</h2>
-            {/* Refresh button removed as logs are now real-time via Supabase subscription */}
-          </div>
-          <div className="bg-neutral text-neutral-content rounded-md p-3 h-64 overflow-y-auto text-xs font-mono">
-            {consoleLogs.length === 0 && <p>No log entries yet. Engine activities will appear here.</p>}
-            {consoleLogs.map((log) => (
-              <div key={log.id} className={`flex items-start mb-1 ${log.type === 'error' ? 'text-error' : log.type === 'success' ? 'text-success' : log.type === 'warning' ? 'text-warning' : ''}`}>
-                <span className="mr-2 opacity-70">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                {log.type === 'info' && <Info size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'error' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'success' && <CheckCircle size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'warning' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0 text-warning" />}
-                {log.type === 'engine' && <RefreshCw size={14} className="mr-1 mt-px flex-shrink-0 animate-pulse" />}
-                <span className="whitespace-pre-wrap break-all">{log.message}</span>
-              </div>
-            ))}
-            <div ref={consoleEndRef} />
+            {/* Schedule Button - full width below the row */}
+            {/* <div className="form-control w-full">
+              <button 
+                className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
+                onClick={handleScheduleCampaign}
+                disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
+              >
+                {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
+              </button>
+            </div> */}
           </div>
         </div>
       </div>

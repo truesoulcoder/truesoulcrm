@@ -10,7 +10,7 @@ interface UploadResponse {
   error?: string;
   message?: string; // Optional success message from API
   warning?: string; // Optional warning message
-  details?: any;    // Optional details
+  details?: string;    // Optional details
 }
 
 interface LeadUploaderProps {
@@ -23,11 +23,12 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [marketRegion, setMarketRegion] = useState<string>('');
-  const [marketRegions, setMarketRegions] = useState<string[]>([]);
+  const [setMarketRegions, marketRegions] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition(); 
   const successAudioRef = useRef<HTMLAudioElement | null>(null);
   const failureAudioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try {
@@ -92,7 +93,6 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
 
         if (result.ok) {
           const successMsg = result.message || 'Upload successful!';
-          setMessage(successMsg);
           if (addMessage) addMessage('success', successMsg);
           if (onUploadSuccess && selectedFile) {
             const count = typeof result.details === 'number' ? result.details : (result.details?.count as number | undefined);
@@ -101,6 +101,13 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
           if (successAudioRef.current) {
             successAudioRef.current.play().catch(err => console.warn('Success audio error:', err));
           }
+          setSelectedFile(null);
+          setMarketRegion('');
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''; // Clear the file input
+          }
+          setMessage(null); // Clear any previous 'uploading...' message
+
           if (result.warning && addMessage) {
             addMessage('warning', result.warning);
           }
@@ -127,13 +134,19 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
   }
 
   return (
-    <>
+    <div className="relative p-4 border border-gray-200 rounded-lg shadow-sm bg-white min-h-[280px]">
+      {isProcessing && (
+        <div className="absolute inset-0 bg-white bg-opacity-80 flex flex-col items-center justify-center z-10 rounded-lg">
+          <span className="loading loading-bars loading-xl text-primary"></span>
+          <p className="mt-3 text-sm font-medium text-gray-700">Processing leads...</p>
+        </div>
+      )}
       <form 
         onSubmit={(e) => {
           e.preventDefault();
           void onSubmit(e);
         }} 
-        className="space-y-4 p-4 border border-gray-200 rounded-lg shadow-sm bg-white"
+        className={`space-y-4 ${isProcessing ? 'opacity-50' : ''}`}
       >
         <div>
           <label htmlFor="market-region" className="block text-sm font-medium text-gray-700 mb-1">Market Region</label>
@@ -152,6 +165,7 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
             id="file-upload"
             type="file"
             accept=".csv"
+            ref={fileInputRef}
             onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPending || isProcessing}
@@ -179,6 +193,6 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
           </p>
         )}
       </form>
-    </>
+    </div>
   );
 }

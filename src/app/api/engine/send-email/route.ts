@@ -8,7 +8,7 @@ import { configure, Environment as NunjucksEnvironment } from 'nunjucks'; // Imp
 
 import { isValidEmail as validateEmailFromUtils } from '@/app/api/engine/_utils/_utils'; // Used in POST success response
 import { logSystemEvent } from '@/services/logService'; // For error logging in POST
-import { FineCutLead } from '@/types/supabase'; // Used for leadForResponse type in POST handler
+import { FineCutLead } from '@/types/leads'; // Used for leadForResponse type in POST handler
 import { supabaseAdmin } from '@/utils/supabase-admin'; // For error logging in POST
 
 // Import workflow steps
@@ -38,7 +38,7 @@ const TEST_RECIPIENT_NAME = process.env.TEST_RECIPIENT_NAME;
 
 export async function POST(request: NextRequest) {
   let validatedParams: Awaited<ReturnType<typeof validateRequestAndParseBody>> | undefined;
-  let leadForErrorLogging: FineCutLead | null = null; // FineCutLead is imported from '@/types/supabase'
+  let leadForErrorLogging: FineCutLead | null = null; // FineCutLead is imported from '@/types/leads'
 
   try {
     // STEP 1: Validate Request Parameters & Initialize Supabase Client (from _workflowSteps/validateRequestAndParseBody-helper.ts)

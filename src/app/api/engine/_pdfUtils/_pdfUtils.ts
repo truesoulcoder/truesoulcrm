@@ -88,7 +88,7 @@ function drawWrappedText(
 
 
 export const generateLoiPdf = async (
-  personalizationData: any,
+  personalizationData: string,
   leadId: string, 
   contactEmail: string 
 ): Promise<Buffer | null> => {

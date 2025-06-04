@@ -121,7 +121,7 @@ export const generateLoiPdf = async (
     
     const baseFontSize = 14; 
     const titleFontSize = 20; 
-    const subtitleFontSize = 18;
+    const subtitleFontSize = 16;
     const signatureFontSize = 28; 
     const disclaimerFontSize = 12;
 
@@ -150,28 +150,28 @@ export const generateLoiPdf = async (
 
     // --- Property Address Subtitle ---
     // Use type-safe access to personalization data
-    const streetAddress = personalizationData.property_address || "N/A Street Address";
-    page.drawText(streetAddress, {
-      x: textX,
-      y: currentY,
-      font: timesRomanFont,
-      size: subtitleFontSize,
-      color: subtitleColor,
-    });
-    currentY -= subtitleFontSize * 1.2; // Line height for subtitle
+    const streetAddressText = personalizationData.property_address || "N/A Street Address";
+    const cityText = personalizationData.property_city || "N/A City";
+    const stateText = personalizationData.property_state || "N/A State";
+    const postalCodeText = personalizationData.property_postal_code || "N/A Zip";
 
-    const cityStateZip = `${personalizationData.property_city || "N/A City"}, ${personalizationData.property_state || "N/A State"} ${personalizationData.property_postal_code || "N/A Zip"}`;
-    page.drawText(cityStateZip, {
-      x: textX,
+    const fullAddressLine = `${streetAddressText}, ${cityText}, ${stateText} ${postalCodeText}`;
+    
+    // Calculate width of the full address line to center it
+    const addressWidth = timesRomanFont.widthOfTextAtSize(fullAddressLine, subtitleFontSize);
+    const centeredAddressX = (page.getWidth() - addressWidth) / 2;
+
+    page.drawText(fullAddressLine, {
+      x: centeredAddressX, // Use centered X
       y: currentY,
       font: timesRomanFont,
       size: subtitleFontSize,
       color: subtitleColor,
     });
-    currentY -= subtitleFontSize * 1.5; // Space after address block
-    
+    currentY -= subtitleFontSize * 1.5; // Space after address block (adjust as needed for single line)
+
     // --- Date ---
-    const dateText = personalizationData.current_date || "N/A Date";
+    const dateText = personalizationData.current_date || "";
     page.drawText(dateText, {
         x: width - pageMargin - timesRomanFont.widthOfTextAtSize(dateText, baseFontSize), // Align right
         y: currentY,

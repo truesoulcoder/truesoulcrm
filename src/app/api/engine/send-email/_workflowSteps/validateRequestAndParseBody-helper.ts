@@ -16,7 +16,7 @@ export async function validateRequestAndParseBody(request: NextRequest): Promise
   let requestBody;
   try {
     requestBody = await request.json();
-  } catch (error) {
+  } catch {
     throw new Error('Invalid JSON in request body');
   }
 

@@ -43,15 +43,13 @@ export async function fetchActiveSender(
     ...sender,
     sender_email: sender.sender_email,
     sender_name: sender.sender_name,
-    email: sender.sender_email,
-    name: sender.sender_name,
   };
   
   if (!validatedSender.sender_email || !validatedSender.sender_name) {
       await logSystemEvent({
         event_type: 'ENGINE_SENDER_DATA_INCOMPLETE',
         message: 'Fetched active sender is missing essential fields (email, name).',
-        details: { sender_id: (sender as any).id, marketRegion: marketRegionNormalizedName },
+        details: { sender_id: (sender as SenderData).id, marketRegion: marketRegionNormalizedName },
         campaign_id: campaignId,
       });
       throw new Error('Active sender data is incomplete.');

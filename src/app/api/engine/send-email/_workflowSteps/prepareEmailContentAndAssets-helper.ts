@@ -5,9 +5,9 @@ import path from 'path';
 import { Environment as NunjucksEnvironment } from 'nunjucks';
 
 import { generateOfferDetails } from '@/actions/offerCalculations';
-import { extractSubjectAndCleanHtml } from '@/app/api/engine/test-email/_workflowSteps/_utils';
+import { extractSubjectAndCleanHtml } from '@/app/api/engine/send-email/_workflowSteps/_utils';
 import { logSystemEvent } from '@/services/logService';
-import { FineCutLead } from '@/types/supabase';
+import { FineCutLead } from '@/types/leads';
 
 
 import type { SenderData, EmailAssets } from './_types';

@@ -28,6 +28,12 @@ const LeadsView: React.FC = () => {
       // Keep only the last 5 messages
       return updatedMessages.slice(-5);
     });
+
+    if (type === 'success') {
+      setTimeout(() => {
+        setMessages(prevMessages => prevMessages.filter(msg => msg.id !== newMessage.id));
+      }, 5000);
+    }
   }, []); // Empty dependency array for useCallback as setMessages is stable
 
   const handleUploadSuccess = (filename: string, count?: number) => {
