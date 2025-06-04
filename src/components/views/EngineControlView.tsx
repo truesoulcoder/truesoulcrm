@@ -381,28 +381,64 @@ const EngineControlView: React.FC = (): JSX.Element => {
     try {
       // Call the uniquely named function
       addLog('info', 'Scheduler: Calling schedule_campaign_by_id_offset (id, offset)');
-      let { data, error } = await supabase.rpc('schedule_campaign_by_id_offset', {
+      // The RPC function now returns TABLE(job_id UUID, next_processed_time TIMESTAMPTZ)
+      const { data: scheduleData, error: scheduleError } = await supabase.rpc('schedule_campaign_by_id_offset', {
         p_campaign_id: campaignUuid,
         p_start_offset: selectedInterval
       });
 
-      if (error) {
-        console.error('Error calling schedule_campaign_by_id_offset RPC:', error);
+      if (scheduleError) {
+        console.error('Error calling schedule_campaign_by_id_offset RPC:', scheduleError);
 
-        const rpcErrorMessage = error.message || JSON.stringify(error);
-        const rpcErrorCode = error.code || 'N/A';
-        const rpcErrorDetails = error.details || 'N/A';
+        const rpcErrorMessage = scheduleError.message || JSON.stringify(scheduleError);
+        const rpcErrorCode = scheduleError.code || 'N/A';
+        const rpcErrorDetails = scheduleError.details || 'N/A';
 
         addLog(
           'error',
           `Failed to schedule campaign ${campaignName}: ${rpcErrorMessage}`,
-          { code: rpcErrorCode, details: rpcErrorDetails, rawError: error } // Add rawError for inspection in UI log data
+          { code: rpcErrorCode, details: rpcErrorDetails, rawError: scheduleError } // Add rawError for inspection in UI log data
         );
         setError(
-          `RPC Error: ${rpcErrorMessage}` + (error.code ? ` (Code: ${error.code})` : '')
+          `RPC Error: ${rpcErrorMessage}` + (scheduleError.code ? ` (Code: ${scheduleError.code})` : '')
         );
       } else {
-        addLog('success', `Successfully scheduled campaign ${campaignName} to run with offset: ${selectedInterval}`, { result: data });
+        addLog('success', `Successfully scheduled campaign ${campaignName} to run with offset: ${selectedInterval}.`);
+        
+        // Check if scheduleData has content to create a CSV
+        if (scheduleData && scheduleData.length > 0) {
+          addLog('info', `Generating job_manifest.csv for ${scheduleData.length} jobs...`);
+          try {
+            const csvHeader = 'job_id,next_processed_time\n';
+            const csvRows = scheduleData.map((job: { job_id: string; next_processed_time: string }) => {
+              // Ensure next_processed_time is treated as UTC and formatted correctly
+              // PostgreSQL TIMESTAMPTZ is usually returned as an ISO string already in UTC or with offset.
+              // new Date().toISOString() converts to UTC and formats as YYYY-MM-DDTHH:mm:ss.sssZ
+              const processedTime = new Date(job.next_processed_time).toISOString();
+              return `${job.job_id},${processedTime}`;
+            }).join('\n');
+            
+            const csvContent = csvHeader + csvRows;
+            
+            // Trigger download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'job_manifest.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            addLog('info', 'job_manifest.csv download initiated.');
+          } catch (csvError: unknown) {
+            console.error('Error generating or downloading job_manifest.csv:', csvError);
+            addLog('error', `Failed to generate job_manifest.csv: ${csvError instanceof Error ? csvError.message : 'Unknown error'}`);
+          }
+        } else {
+          addLog('info', 'No jobs were scheduled, so no job_manifest.csv was generated.');
+        }
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';

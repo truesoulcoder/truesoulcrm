@@ -1,53 +1,39 @@
+import os
 import csv
-import logging
-from datetime import datetime, timezone, timedelta # Added timedelta
 import time
 import requests
-from apscheduler.schedulers.blocking import BlockingScheduler
-import json # Added for state management
-import os   # Added for checking file existence
+import logging
+import json
+from datetime import datetime, timezone
 
 # --- Configuration ---
-MANIFEST_CSV_FILE = "job_manifest.csv"
-STATE_FILE = "crondonkey_state.json" # For storing last shutdown time and processed jobs
-API_ENDPOINT = "http://localhost:3000/api/engine/send-email"
-API_TOKEN = None
+LOG_LEVEL = os.getenv("CRON_LOG_LEVEL", "INFO").upper()
+API_ENDPOINT = os.getenv("CRON_API_ENDPOINT", "http://localhost:3000/api/engine/send-email")
+STATE_FILE = "crondonkey_state.json"
+POLLING_INTERVAL_SECONDS = int(os.getenv("CRON_POLLING_INTERVAL_SECONDS", 30))
 
-# --- Logging Setup ---
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(schedulerName)s - %(jobName)s - %(message)s')
-{{ ... }}
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- State Management Functions ---
+# --- State Management ---
 def load_state():
-    """Loads the last shutdown time and processed job IDs from the state file."""
-    if not os.path.exists(STATE_FILE):
-        logger.info(f"State file '{STATE_FILE}' not found. Assuming first run or clean start.")
-        return None, set()  # No last shutdown time, empty set of processed IDs
-
     try:
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
             state_data = json.load(f)
-        
-        last_shutdown_time_utc_str = state_data.get("last_shutdown_time_utc")
-        last_shutdown_time_utc = datetime.fromisoformat(last_shutdown_time_utc_str) if last_shutdown_time_utc_str else None
-        
-        processed_job_ids = set(state_data.get("processed_job_ids", []))
-        
-        if last_shutdown_time_utc:
-            logger.info(f"Loaded state: Last shutdown was at {last_shutdown_time_utc.isoformat()}.")
-        logger.info(f"Loaded {len(processed_job_ids)} processed job IDs from state.")
-        return last_shutdown_time_utc, processed_job_ids
-    except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError) as e:
-        logger.error(f"Error loading state file '{STATE_FILE}': {e}. Starting fresh.", exc_info=True)
-        return None, set()
+            processed_ids = set(state_data.get("processed_job_ids", []))
+            logger.info(f"Successfully loaded state from '{STATE_FILE}'. Processed IDs: {len(processed_ids)}")
+            return processed_ids
+    except FileNotFoundError:
+        logger.warning(f"State file '{STATE_FILE}' not found. Starting fresh.")
+        return set()
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error(f"Error loading state from '{STATE_FILE}': {e}", exc_info=True)
+        return set()
 
-def save_state(last_shutdown_time_utc, processed_job_ids):
-    """Saves the current shutdown time and all processed job IDs to the state file."""
+def save_state(processed_job_ids_current_run):
     state_data = {
-        "last_shutdown_time_utc": last_shutdown_time_utc.isoformat() if last_shutdown_time_utc else None,
-        "processed_job_ids": sorted(list(processed_job_ids)) # Store as sorted list
+        "last_shutdown_time_utc": datetime.now(timezone.utc).isoformat(), # Still useful to know last run
+        "processed_job_ids": sorted(list(processed_job_ids_current_run))
     }
     try:
         with open(STATE_FILE, 'w', encoding='utf-8') as f:
@@ -57,178 +43,128 @@ def save_state(last_shutdown_time_utc, processed_job_ids):
         logger.error(f"Error saving state to '{STATE_FILE}': {e}", exc_info=True)
 
 # --- API Interaction ---
-def send_job_to_api(job_id, processed_job_ids_current_session): # Modified to accept current session's processed IDs
-    """Sends the job ID to the configured email workflow API."""
-    logger.info(f"Attempting to send job_id '{job_id}' to API: {API_ENDPOINT}")
-    headers = {
-        "Content-Type": "application/json"
+def send_job_id_to_api(job_id_from_csv):
+    logger.info(f"Attempting to send job_id '{job_id_from_csv}' to API: {API_ENDPOINT}")
+    
+    payload = {
+        "sendToLead": True,
+        "jobId": job_id_from_csv # API will use this to look up details in campaign_jobs
     }
-    # API_TOKEN is None, so no Authorization header added
-    payload = {"job_id": job_id}
+    
+    headers = {"Content-Type": "application/json"}
+    # Add API token/auth if your API endpoint is protected
+    # api_token = os.getenv("CRON_API_TOKEN")
+    # if api_token:
+    #     headers["Authorization"] = f"Bearer {api_token}"
 
     try:
         response = requests.post(API_ENDPOINT, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
-        response_summary = response.text[:500]
-        logger.info(f"Successfully sent job_id '{job_id}'. Status: {response.status_code}. Response: {response_summary}")
-        processed_job_ids_current_session.add(job_id) # Add to current session's set on success
-        return True
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error sending job_id '{job_id}' to API {API_ENDPOINT}: {e}")
-        if e.response is not None:
-            error_response_summary = e.response.text[:500]
-            logger.error(f"API Response Status: {e.response.status_code}, Body: {error_response_summary}")
-        return False # Return False, job_id not added to processed_job_ids_current_session
+        response_data = response.json()
 
-# --- Job Scheduling Logic ---
-def load_and_schedule_jobs(scheduler, csv_filepath, processed_job_ids_from_state, last_shutdown_time_utc, processed_job_ids_current_session):
-    """Loads jobs from the CSV manifest, adjusts schedules based on downtime, and schedules them."""
-    jobs_scheduled_count = 0
-    jobs_skipped_past_count = 0
-    jobs_already_processed_count = 0
-    
-    now_utc = datetime.now(timezone.utc)
-    downtime_delta = timedelta(0) # Initialize to zero
-
-    if last_shutdown_time_utc:
-        # Ensure last_shutdown_time_utc is timezone-aware (should be if loaded correctly)
-        if last_shutdown_time_utc.tzinfo is None:
-             last_shutdown_time_utc = last_shutdown_time_utc.replace(tzinfo=timezone.utc) # Defensive
+        if not response.ok:
+            logger.error(f"API call failed for job_id {job_id_from_csv}. Status: {response.status_code}. Response: {response_data}")
+            return False
         
-        if now_utc > last_shutdown_time_utc:
-            downtime_delta = now_utc - last_shutdown_time_utc
-            logger.info(f"Calculated downtime: {downtime_delta}. Schedules will be adjusted.")
-        else:
-            logger.warning(f"Current time {now_utc.isoformat()} is not after last shutdown {last_shutdown_time_utc.isoformat()}. No downtime adjustment.")
+        logger.info(f"Successfully sent job_id '{job_id_from_csv}'. API Status: {response.status_code}. Message: {response_data.get('message', 'Processed')}")
+        return True
+        
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout sending job_id {job_id_from_csv} to API {API_ENDPOINT}.")
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error sending job_id '{job_id_from_csv}' to API {API_ENDPOINT}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_response_summary = e.response.json()
+            except ValueError:
+                error_response_summary = e.response.text[:500]
+            logger.error(f"API Response Status: {e.response.status_code}, Body: {error_response_summary}")
+        return False
 
+# --- Job Processing Logic ---
+def process_manifest(csv_filepath, processed_job_ids_from_state):
+    logger.info(f"Processing manifest file: {csv_filepath}")
+    newly_processed_job_ids = set()
 
     try:
-        with open(csv_filepath, mode='r', encoding='utf-8') as infile:
+        with open(csv_filepath, mode='r', encoding='utf-8-sig') as infile:
             reader = csv.DictReader(infile)
-            if 'job_id' not in reader.fieldnames or 'next_processed_time' not in reader.fieldnames:
-                logger.error(f"CSV file must contain 'job_id' and 'next_processed_time' columns.")
-                return
-            
-            manifest_jobs = list(reader) # Read all jobs to allow modification of scheduler based on full list
-            logger.info(f"Read {len(manifest_jobs)} jobs from manifest '{csv_filepath}'.")
-
-            for row_number, row in enumerate(manifest_jobs, 1):
-                job_id = row.get('job_id')
-                time_str = row.get('next_processed_time')
-
-                if not job_id or not time_str:
-                    logger.warning(f"Skipping row {row_number} due to missing job_id or next_processed_time: {row}")
-                    continue
-
-                if job_id in processed_job_ids_from_state:
-                    logger.info(f"Job_id '{job_id}' was already processed in a previous session. Skipping.")
-                    jobs_already_processed_count += 1
-                    continue
-                
-                # Check if already scheduled in this run (e.g. if script was restarted quickly without shutdown)
-                # This check is more for robustness, as processed_job_ids_current_session should be empty on fresh load_and_schedule
-                if job_id in processed_job_ids_current_session:
-                    logger.info(f"Job_id '{job_id}' was already processed in THIS session (unexpected). Skipping.")
-                    continue
-
-
-                try:
-                    if time_str.endswith('Z'):
-                        time_str_adjusted = time_str[:-1] + '+00:00'
-                    else:
-                        time_str_adjusted = time_str
-                    
-                    original_scheduled_time_aware = datetime.fromisoformat(time_str_adjusted)
-                    
-                    # Apply downtime_delta
-                    adjusted_scheduled_time_aware = original_scheduled_time_aware + downtime_delta
-                    
-                    # Ensure it's UTC for internal consistency
-                    adjusted_scheduled_time_utc = adjusted_scheduled_time_aware.astimezone(timezone.utc)
-
-                    # Compare with now_utc (which is also UTC)
-                    if adjusted_scheduled_time_utc <= now_utc:
-                        logger.warning(
-                            f"Original time {original_scheduled_time_aware.isoformat()}, "
-                            f"Adjusted time {adjusted_scheduled_time_utc.isoformat()} for job_id '{job_id}' is in the past. "
-                            f"Consider running immediately or skipping. For now, skipping." 
-                            # TODO: Add logic here to run immediately if desired, e.g., by setting run_date to now_utc + few seconds
-                        )
-                        jobs_skipped_past_count += 1
-                        continue
-                    
-                    run_date_for_scheduler = adjusted_scheduled_time_aware # APScheduler handles tz-aware
-
-                    scheduler.add_job(
-                        send_job_to_api,
-                        trigger='date',
-                        run_date=run_date_for_scheduler,
-                        args=[job_id, processed_job_ids_current_session], # Pass current session set
-                        id=f"job_{job_id}_{row_number}",
-                        name=f"API call for {job_id}"
-                    )
-                    jobs_scheduled_count += 1
-                    logger.info(f"Scheduled job_id '{job_id}' for {run_date_for_scheduler.isoformat()} (Original: {original_scheduled_time_aware.isoformat()})")
-
-                except ValueError as ve:
-                    logger.error(f"Invalid timestamp format for job_id '{job_id}' ('{time_str}'): {ve}. Skipping.")
-                except Exception as e:
-                    logger.error(f"Error processing job_id '{job_id}': {e}. Skipping.")
-        
-        logger.info(f"Finished loading manifest. Scheduled {jobs_scheduled_count} new jobs.")
-        logger.info(f"Skipped {jobs_skipped_past_count} past jobs (after adjustment).")
-        logger.info(f"Skipped {jobs_already_processed_count} jobs already processed in previous sessions.")
-
+            if not reader.fieldnames or 'job_id' not in reader.fieldnames or 'next_processing_time' not in reader.fieldnames:
+                logger.error(f"CSV file {csv_filepath} is missing 'job_id' or 'next_processing_time' header, or is empty. Columns found: {reader.fieldnames}")
+                return newly_processed_job_ids
+            jobs_to_process = list(reader)
     except FileNotFoundError:
         logger.error(f"Manifest file '{csv_filepath}' not found.")
+        return newly_processed_job_ids
     except Exception as e:
-        logger.error(f"Failed to read or process manifest file '{csv_filepath}': {e}")
+        logger.error(f"Error reading CSV file '{csv_filepath}': {e}", exc_info=True)
+        return newly_processed_job_ids
 
+    for job_row in jobs_to_process:
+        try:
+            job_id_str = job_row.get('job_id')
+            if not job_id_str:
+                logger.warning(f"Skipping row with missing 'job_id' in CSV: {job_row}")
+                continue
+            
+            job_id = int(job_id_str)
 
-# --- Main Execution ---
-def main():
-    logger.info("Initializing manifest-based cron worker with pause/resume capability...")
+            if job_id in processed_job_ids_from_state or job_id in newly_processed_job_ids:
+                logger.debug(f"Job ID {job_id} already processed by this script instance. Skipping.")
+                continue
 
-    processed_job_ids_current_session = set()
-    last_shutdown_time_from_state, processed_job_ids_from_state = load_state()
+            next_processing_time_str = job_row.get('next_processing_time')
+            if not next_processing_time_str:
+                logger.warning(f"Skipping job ID {job_id} due to missing 'next_processing_time' in CSV.")
+                continue
+            
+            try:
+                # Handles formats like "2025-06-04T19:41:02.254Z"
+                if next_processing_time_str.endswith('Z'):
+                    next_processing_time_dt = datetime.fromisoformat(next_processing_time_str[:-1] + '+00:00')
+                else:
+                    next_processing_time_dt = datetime.fromisoformat(next_processing_time_str)
+                
+                if next_processing_time_dt.tzinfo is None:
+                    next_processing_time_dt = next_processing_time_dt.replace(tzinfo=timezone.utc) # Assume UTC if naive
 
-    scheduler = BlockingScheduler(timezone="UTC")
+            except ValueError as ve:
+                logger.error(f"Error parsing next_processing_time '{next_processing_time_str}' for job ID {job_id}: {ve}. Expected ISO format. Skipping.")
+                continue
 
-    # Load jobs, passing the state information and the set for current session's processed jobs
-    load_and_schedule_jobs(scheduler, 
-                           MANIFEST_CSV_FILE, 
-                           processed_job_ids_from_state, 
-                           last_shutdown_time_from_state,
-                           processed_job_ids_current_session)
+            current_time_utc = datetime.now(timezone.utc)
 
-    if not scheduler.get_jobs():
-        logger.info("No jobs were scheduled (either none in manifest, all processed, or all past). Worker will exit.")
-        # Save state even if no jobs scheduled, to record processed IDs if manifest was empty but state wasn't
-        current_shutdown_time = datetime.now(timezone.utc)
-        all_processed_ids_to_save = processed_job_ids_from_state.union(processed_job_ids_current_session)
-        save_state(current_shutdown_time, all_processed_ids_to_save)
-        return
+            if next_processing_time_dt <= current_time_utc:
+                logger.info(f"Job ID {job_id} is due. (Due: {next_processing_time_dt}, Current: {current_time_utc})")
+                if send_job_id_to_api(job_id): # Pass only the job_id
+                    newly_processed_job_ids.add(job_id)
+                else:
+                    logger.warning(f"Failed to process job ID {job_id} via API. It will be retried next cycle if not marked processed by API.")
+            else:
+                logger.debug(f"Job ID {job_id} not yet due (Due: {next_processing_time_dt}). Skipping for now.")
+        except Exception as e:
+            logger.error(f"Unexpected error processing job row: {job_row}. Error: {e}", exc_info=True)
+            
+    return newly_processed_job_ids
 
-    logger.info("Scheduler started. Waiting for scheduled jobs...")
-    logger.info("Press Ctrl+C to exit gracefully (will save state).")
+def main_loop(csv_filepath):
+    logger.info(f"Crondonkey (Python/CSV - Simplified Payload) starting. Polling: {POLLING_INTERVAL_SECONDS}s. API: {API_ENDPOINT}")
+    processed_ids_from_state = load_state()
 
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Scheduler stop requested by user or system...")
-    except Exception as e:
-        logger.error(f"Scheduler encountered a critical error: {e}", exc_info=True)
-    finally:
-        logger.info("Shutting down scheduler and saving state...")
-        if scheduler.running:
-            scheduler.shutdown(wait=False) # Don't wait for jobs to complete, just stop scheduling new ones
+    while True:
+        logger.info(f"Starting new processing cycle for {csv_filepath}...")
+        newly_processed_this_cycle = process_manifest(csv_filepath, processed_ids_from_state)
         
-        current_shutdown_time = datetime.now(timezone.utc)
-        # Combine processed IDs from state file with those processed in the current session
-        all_processed_ids_to_save = processed_job_ids_from_state.union(processed_job_ids_current_session)
-        save_state(current_shutdown_time, all_processed_ids_to_save)
-        logger.info("Cron worker shut down gracefully.")
+        if newly_processed_this_cycle:
+            processed_ids_from_state.update(newly_processed_this_cycle)
+            save_state(processed_ids_from_state)
+        
+        logger.info(f"Cycle finished. Sleeping for {POLLING_INTERVAL_SECONDS} seconds...")
+        time.sleep(POLLING_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
-    main()
-{{ ... }}
+    manifest_path = os.getenv("CRON_MANIFEST_PATH", "job_manifest.csv") 
+    # Ensure .env.local is in parent dir or env vars are set
+    # from dotenv import load_dotenv
+    # load_dotenv('../.env.local') # If .env.local is in parent dir of 'scripts'
+    main_loop(manifest_path)
