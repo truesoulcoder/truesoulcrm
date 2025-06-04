@@ -1,5 +1,6 @@
 import { JWT } from 'google-auth-library';
 import { google } from 'googleapis';
+import { getGmailService } from '@/app/api/engine/_utils/_utils';
 
 /**
  * Gmail service for sending emails through Google's Gmail API
@@ -63,72 +64,62 @@ async function sendEmail(
   attachments?: { filename: string; content: Buffer; contentType?: string; contentId?: string }[]
 ): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: unknown }> {
   try {
-    // Ensure Gmail service is initialized
-    if (!authClient || !gmail) {
-      const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-      if (!serviceAccountKey) {
-        throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable is not defined');
-      }
-      initializeGmailService(serviceAccountKey);
-    }
+    // Get the Gmail service for the impersonated user
+    const gmail = getGmailService(impersonatedUserEmail);
     
-    // Set the user to impersonate
-    authClient.subject = impersonatedUserEmail;
-
-    const boundary = `boundary_${Date.now()}`;
-    const message = [] as string[];
+    // Create a simple MIME message with proper boundaries
+    const boundary = `----=_Part_Boundary_${Math.random().toString(36).substring(2)}`;
+    
+    let message = [];
     message.push(`From: ${impersonatedUserEmail}`);
     message.push(`To: ${recipientEmail}`);
     message.push(`Subject: ${subject}`);
-    message.push('MIME-Version: 1.0');
+    message.push(`MIME-Version: 1.0`);
     message.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
-    message.push('');
+    message.push(``);
+    
+    // HTML part
     message.push(`--${boundary}`);
-    message.push('Content-Type: text/html; charset="UTF-8"');
-    message.push('Content-Transfer-Encoding: 7bit');
-    message.push('');
+    message.push(`Content-Type: text/html; charset="utf-8"`);
+    message.push(`Content-Transfer-Encoding: 7bit`);
+    message.push(``);
     message.push(htmlBody);
-
-    if (attachments && attachments.length) {
+    message.push(``);
+    
+    // Attachments
+    if (attachments && attachments.length > 0) {
       for (const file of attachments) {
         message.push(`--${boundary}`);
-        // Use the provided contentType if available
         message.push(`Content-Type: ${file.contentType || 'application/octet-stream'}; name="${file.filename}"`);
-        message.push('Content-Transfer-Encoding: base64');
+        message.push(`Content-Transfer-Encoding: base64`);
         
-        // Handle inline attachments with Content-ID if provided
         if (file.contentId) {
           message.push(`Content-ID: <${file.contentId}>`);
-          message.push('Content-Disposition: inline');
+          message.push(`Content-Disposition: inline; filename="${file.filename}"`);
         } else {
           message.push(`Content-Disposition: attachment; filename="${file.filename}"`);
         }
         
-        message.push('');
-        // Split base64 content into lines of 76 characters to prevent encoding issues
-        const base64Content = file.content.toString('base64');
-        const chunks = base64Content.match(/.{1,76}/g) || [];
-        message.push(chunks.join('\r\n'));
+        message.push(``);
+        // Base64 encode the content without splitting into lines
+        message.push(file.content.toString('base64'));
       }
     }
+    
     message.push(`--${boundary}--`);
-
+    
     // Create the raw message string
     const rawMessageString = message.join('\r\n');
     
-    // Properly encode the message for Gmail API - must be URL-safe base64
-    // Note: We're not removing padding (=) as it's actually required by the RFC
-    const rawMessage = Buffer.from(rawMessageString)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-
-    // Type assertion needed to handle the 'any' type safely
+    // Use base64url encoding directly
+    const rawMessage = Buffer.from(rawMessageString).toString('base64url');
+    
+    // Send the email
     const res = await gmail.users.messages.send({
       userId: impersonatedUserEmail,
       requestBody: { raw: rawMessage },
     });
-
+    
     return { success: true, messageId: res.data.id!, threadId: res.data.threadId! };
   } catch (error) {
     console.error('sendEmail error:', error);

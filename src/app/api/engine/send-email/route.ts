@@ -153,13 +153,11 @@ export async function POST(request: NextRequest) {
     console.error(`Critical error in POST /api/engine/test-email/modular-route.ts: ${errorMessage}`, errorStack);
 
     const leadIdForError = validatedParams?.specificLeadIdToTest || String(leadForErrorLogging?.id) || 'N/A';
-    const originalLeadIdForError = String(leadForErrorLogging?.id || leadIdForError);
     const marketRegionForError = validatedParams?.marketRegionNormalizedName || leadForErrorLogging?.market_region || 'unknown';
     const campaignIdForError = validatedParams?.campaignId;
 
     try {
       await supabaseAdmin.from('engine_log').insert([{
-        original_lead_id: originalLeadIdForError,
         market_region_normalized_name: marketRegionForError,
         email_status: 'ERROR_ROUTE_HANDLER',
         email_error_message: `Route handler error: ${errorMessage}`,
@@ -199,7 +197,6 @@ export async function POST(request: NextRequest) {
         success: false,
         error: `An unexpected error occurred: ${errorMessage}`,
         lead_id: leadIdForError,
-        original_lead_id: originalLeadIdForError,
       },
       { status: statusCode }
     );

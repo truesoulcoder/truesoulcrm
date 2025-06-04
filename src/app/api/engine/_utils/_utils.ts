@@ -103,7 +103,7 @@ export interface Eli5EmailLogEntry {
 
   converted?: boolean | null;
 
-  [key: string]: any; // Retain for flexibility if extra fields are ever passed
+  [key: string]: unknown; // Retain for flexibility if extra fields are ever passed
 }
 
 export const logToSupabase = async (logData: Partial<Eli5EmailLogEntry>) => { // Changed to Partial for flexibility

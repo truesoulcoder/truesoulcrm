@@ -11,12 +11,10 @@ export interface RequestPayload {
 }
 
 export interface SenderData {
+  id: string;
   sender_name: string;
   sender_email: string;
-  email: string; 
-  name: string;  
-  credentials_json: string;
-  is_default: boolean;
+  status: string;
 }
 
 export interface MarketDetails { // Though not directly used by functions, moved for completeness
@@ -29,7 +27,7 @@ export interface EmailAssets {
   subject: string;
   htmlBody: string;
   textBody: string;
-  templateContext: Record<string, any>;
+  templateContext: Record<string, unknown>;
   logoBuffer?: Buffer; // Buffer is a global type in Node.js
   logoContentType?: string;
 }
@@ -38,10 +36,9 @@ export interface EmailAssets {
 // but moved for completeness if it was intended for other uses.
 // export interface EmailDispatchParams { ... } 
 
-export interface EmailLogEntry {
+export interface EngineLogEntry {
   id?: number;
   created_at?: string;
-  original_lead_id?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
   property_address?: string | null;
@@ -57,7 +54,6 @@ export interface EmailLogEntry {
   market_region?: string | null;
   mls_curr_status?: string | null;
   mls_curr_days_on_market?: number | null;
-  normalized_lead_converted_status?: boolean | null;
   sender_name?: string | null;
   sender_email_used?: string | null;
   email_subject_sent?: string | null;
@@ -68,7 +64,7 @@ export interface EmailLogEntry {
   campaign_id?: string | null;
   campaign_run_id?: string | null;
   converted?: boolean | null;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface EmailDispatchFullParams {

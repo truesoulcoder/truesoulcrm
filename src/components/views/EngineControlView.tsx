@@ -5,9 +5,10 @@ import React, { useState, useEffect, useCallback, useRef, JSX } from 'react';
 
 import { supabase } from '@/lib/supabase/client';
 import { Database } from '@/types/supabase';
+import TimePicker from '@/components/ui/TimePicker'; // Added import for TimePicker
 
-// Assuming _email_log is the primary source of real-time messages for now
-type EmailLogEntry = Database['public']['Tables']['email_log']['Row'];
+// Assuming engine_log is the primary source of real-time messages for now
+type EngineLogEntry = Database['public']['Tables']['engine_log']['Row'];
 
 interface LogEntry {
   id: string;
@@ -17,19 +18,11 @@ interface LogEntry {
   data?: any;
 }
 
-interface RawEngineLog {
-  id: number;
-  processed_at: string | null;
-  message: string;
-  log_level: string | null;
-  data?: any;
-}
-
 interface EngineLogTablePayload {
-  id: number; // Assuming 'id' in 'engine_log' is a number (e.g., SERIAL)
-  timestamp: string; // Assuming 'timestamp' from DB is an ISO string
+  id: number;
+  processed_at: string | null; // Changed from timestamp to processed_at
   message: string;
-  type: LogEntry['type']; // Assuming 'type' column matches 'info', 'error', etc.
+  type: LogEntry['type'];
   data?: any;
 }
 
@@ -72,6 +65,12 @@ interface MarketRegion {
   lead_count: number;
 }
 
+// Type for campaign dropdown
+type CampaignSelectItem = {
+  id: string; // uuid
+  name: string;
+};
+
 const EngineControlView: React.FC = (): JSX.Element => {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('idle');
   const [marketRegionsList, setMarketRegionsList] = useState<MarketRegion[]>([]);
@@ -81,6 +80,40 @@ const EngineControlView: React.FC = (): JSX.Element => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const consoleEndRef = useRef<null | HTMLDivElement>(null);
+
+  // State for campaign scheduler
+  const [allCampaigns, setAllCampaigns] = useState<CampaignSelectItem[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
+  const [selectedInterval, setSelectedInterval] = useState<string>('01:00:00'); // Default to 1 hour, e.g.
+  const [isScheduling, setIsScheduling] = useState<boolean>(false);
+
+  // Fetch campaigns for dropdown
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      setIsLoading(true);
+      addLog('info', 'Fetching campaigns for scheduler...');
+      const { data, error: campaignsError } = await supabase
+        .from('campaigns')
+        .select('id, name')
+        .order('name', { ascending: true });
+
+      if (campaignsError) {
+        console.error('Error fetching campaigns:', campaignsError);
+        addLog('error', `Error fetching campaigns: ${campaignsError.message}`);
+        setError('Failed to load campaigns.');
+      } else {
+        setAllCampaigns(data as CampaignSelectItem[]);
+        if (data.length > 0) {
+          setSelectedCampaignId(data[0].id); // Select the first campaign by default
+        }
+        addLog('success', `Successfully fetched ${data.length} campaigns.`);
+      }
+      setIsLoading(false);
+    };
+
+    void fetchCampaigns();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
   // Real-time log updates from engine_log table
   useEffect(() => {
@@ -148,14 +181,14 @@ const EngineControlView: React.FC = (): JSX.Element => {
           }) as LogEntry[];
           setConsoleLogs(formattedLogs); // Set initial logs directly, replacing any previous ones
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error('Exception fetching initial logs:', e);
         setConsoleLogs(prevLogs => [
           ...prevLogs,
           {
             id: `${Date.now().toString()}_fetch_exception`,
             timestamp: new Date().toISOString(),
-            message: `Exception fetching initial logs: ${e.message}`,
+            message: `Exception fetching initial logs: ${e instanceof Error ? e.message : 'Unknown error'}`,
             type: 'error'
           }
         ]);
@@ -172,10 +205,32 @@ const EngineControlView: React.FC = (): JSX.Element => {
         (payload) => {
           console.log('New engine log received:', payload.new);
           const newRawLog = payload.new as EngineLogTablePayload; // Use specific type
+
+          // Safe timestamp handling
+          let timestampStr: string;
+          try {
+            // Use processed_at instead of timestamp
+            if (newRawLog.processed_at) {
+              const dateObj = new Date(newRawLog.processed_at);
+              if (isNaN(dateObj.getTime())) {
+                console.warn(`Invalid processed_at value: '${newRawLog.processed_at}' (log ID: ${newRawLog.id}). Using current time as fallback.`);
+                timestampStr = new Date().toISOString();
+              } else {
+                timestampStr = dateObj.toISOString();
+              }
+            } else {
+              console.warn(`Null or undefined processed_at for log ID: ${newRawLog.id}. Using current time as fallback.`);
+              timestampStr = new Date().toISOString();
+            }
+          } catch (error) {
+            console.error(`Error processing timestamp: ${error}. Using current time as fallback.`);
+            timestampStr = new Date().toISOString();
+          }
+
           const newLogEntry: LogEntry = {
             id: String(newRawLog.id),
-            timestamp: new Date(newRawLog.timestamp).toISOString(),
-            message: newRawLog.message,
+            timestamp: timestampStr,
+            message: newRawLog.message || '',
             type: newRawLog.type as LogEntry['type'],
             data: newRawLog.data,
           };
@@ -206,15 +261,17 @@ const EngineControlView: React.FC = (): JSX.Element => {
     };
   }, []); // Empty dependency array, supabase client is stable
 
-  const addLog = useCallback((message: string, type: LogEntry['type'], data?: any) => {
-    const newLog: LogEntry = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-      timestamp: new Date().toISOString(),
-      message,
-      type,
-      data,
-    };
-    setConsoleLogs(prevLogs => [newLog, ...prevLogs.slice(0, 199)]); // Keep max 200 logs
+  const addLog = useCallback((type: LogEntry['type'], message: string, data?: any) => {
+    setConsoleLogs(prevLogs => [
+      ...prevLogs,
+      {
+        id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)`,
+        timestamp: new Date().toISOString(),
+        message,
+        type,
+        data,
+      },
+    ]);
   }, []);
 
   // Scroll to bottom of console
@@ -225,13 +282,13 @@ const EngineControlView: React.FC = (): JSX.Element => {
   // Placeholder for initial engine status check (if needed)
   useEffect(() => {
     // You might want to fetch the current engine status from an RPC or a dedicated table on load
-    addLog(' Engine Control Panel Initialized.', 'info');
+    addLog('info', 'Engine Control Panel Initialized.');
     // Example: async function fetchEngineStatus() { ... setEngineStatus ... } 
     // void fetchEngineStatus();
 
     // Fetch market regions for the test email selector
     const fetchMarketRegionsForTest = async () => {
-      addLog('Fetching market regions for test email selector...', 'info');
+      addLog('info', 'Fetching market regions for test email selector...');
       setIsLoadingMarketRegions(true);
       try {
         const response = await fetch('/api/market-regions');
@@ -276,14 +333,14 @@ const EngineControlView: React.FC = (): JSX.Element => {
           const firstRegion = marketRegions[0];
           // After validation, firstRegion.normalized_name is guaranteed to be a string.
           setSelectedTestMarketRegion(firstRegion.normalized_name);
-          addLog(`Market regions loaded. Default test region: ${firstRegion.name}`, 'info');
+          addLog('info', `Market regions loaded. Default test region: ${firstRegion.name}`);
         } else {
-          addLog('No market regions found.', 'warning');
+          addLog('warning', 'No market regions found.');
           setSelectedTestMarketRegion(undefined); // Explicitly set to undefined
         }
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        addLog(`Error fetching market regions: ${errorMessage}`, 'error');
+        addLog('error', `Error fetching market regions: ${errorMessage}`);
         setError(`Failed to load market regions: ${errorMessage}`);
         setMarketRegionsList([]); // Clear list on error
         setSelectedTestMarketRegion(undefined); // Clear selection on error
@@ -311,32 +368,69 @@ const EngineControlView: React.FC = (): JSX.Element => {
           } else {
             message += JSON.stringify(payload.new);
           }
-          addLog(message, 'engine', payload.new);
+          addLog('engine', message, payload.new);
         }
       )
       .subscribe((status: string, err?: { message: string }) => {
         if (status === 'SUBSCRIBED') {
-          addLog('Connected to  Engine real-time log stream.', 'success');
+          addLog('success', 'Connected to  Engine real-time log stream.');
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           const errorMessage = ` Log Stream Error: ${err?.message || 'Unknown error'}`;
-          addLog(errorMessage, 'error');
+          addLog('error', errorMessage);
           setError(errorMessage);
         }
       });
 
     return () => {
-      addLog('Disconnecting from  Engine log stream...', 'info');
+      addLog('info', 'Disconnecting from  Engine log stream...');
       if (subscription) void supabase.removeChannel(subscription);
     };
   }, [addLog]);
 
+  const handleScheduleCampaign = async () => {
+    if (!selectedCampaignId) {
+      addLog('error', 'No campaign selected. Please select a campaign to schedule.');
+      return;
+    }
+    if (!selectedInterval) {
+      addLog('error', 'No interval selected. Please set an interval.');
+      return;
+    }
+
+    setIsScheduling(true);
+    const campaignName = allCampaigns.find(c => c.id === selectedCampaignId)?.name || 'Unknown Campaign';
+    addLog('info', `Attempting to schedule campaign: ${campaignName} (ID: ${selectedCampaignId}) with start offset: ${selectedInterval}`);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc('schedule_campaign', {
+        p_campaign_id: selectedCampaignId,
+        p_start_offset: selectedInterval,
+      });
+
+      if (rpcError) {
+        console.error('Error calling schedule_campaign RPC:', rpcError);
+        addLog('error', `Failed to schedule campaign ${campaignName}: ${rpcError.message}`, rpcError.details);
+        setError(`RPC Error: ${rpcError.message}`);
+      } else {
+        addLog('success', `Successfully called schedule_campaign for ${campaignName}. Result: ${JSON.stringify(data)}`, data);
+        // Depending on the RPC's return, you might want to parse 'data' more meaningfully
+      }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
+      console.error('Exception calling schedule_campaign RPC:', e);
+      addLog('error', `Exception while scheduling campaign ${campaignName}: ${errorMessage}`);
+      setError(`Exception: ${errorMessage}`);
+    }
+    setIsScheduling(false);
+  };
+
   const handleSendTestEmail = async () => {
     if (!selectedTestMarketRegion) {
-      addLog('Please select a market region for the test email.', 'warning');
+      addLog('warning', 'Please select a market region for the test email.');
       setError('A market region must be selected to send a test email.');
       return;
     }
-    addLog('Sending request to /api/engine/test-email...', 'info');
+    addLog('info', 'Sending request to /api/engine/test-email...');
     setIsLoading(true);
     setEngineStatus('test_sending');
     setError(null);
@@ -359,9 +453,9 @@ const EngineControlView: React.FC = (): JSX.Element => {
       }
 
       if (result.success) {
-        addLog(`Test email API success: ${result.message}`, 'success');
+        addLog('success', `Test email API success: ${result.message}`);
         if (result.lead_id) {
-            addLog(`Test email processed for lead ID: ${result.lead_id}, Subject: "${result.subject}"`, 'info');
+            addLog('info', `Test email processed for lead ID: ${result.lead_id}, Subject: "${result.subject}"`);
         }
       } else {
         throw new Error(result.error || 'Test email API returned success:false');
@@ -369,7 +463,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
     } catch (error: unknown) {
       if (error instanceof Error) {
         const errorMessage = error.message;
-        addLog(`Error during test email: ${errorMessage}`, 'error');
+        addLog('error', `Error during test email: ${errorMessage}`);
         setError(errorMessage);
         setEngineStatus('error'); // Set status to error
       }
@@ -385,28 +479,28 @@ const EngineControlView: React.FC = (): JSX.Element => {
   const handleStartEngine = async () => {
     if (!selectedTestMarketRegion || selectedTestMarketRegion.trim() === '') {
       const msg = 'Market region cannot be empty. Please select a region.';
-      addLog(msg, 'warning');
+      addLog('warning', msg);
       setError(msg);
       return;
     }
-    addLog(`Initiating Engine start sequence for market region: ${selectedTestMarketRegion}...`, 'info');
+    addLog('info', `Initiating Engine start sequence for market region: ${selectedTestMarketRegion}...`);
     setIsLoading(true);
     setEngineStatus('starting');
     setError(null);
 
     try {
       // Step 1: Call resume-campaign
-      addLog('Attempting to resume campaign processing flag...', 'info');
+      addLog('info', 'Attempting to resume campaign processing flag...');
       const resumeResponse = await fetch('/api/engine/resume-campaign', { method: 'POST' });
       const resumeResult: ResumeCampaignResponse = await resumeResponse.json();
 
       if (!resumeResponse.ok || !resumeResult.success) {
         throw new Error(resumeResult.error || `Failed to resume campaign flag (status ${resumeResponse.status})`);
       }
-      addLog('Campaign processing flag successfully set to RESUMED.', 'success');
+      addLog('success', 'Campaign processing flag successfully set to RESUMED.');
 
       // Step 2: Call start-campaign
-      addLog(`Sending request to /api/engine/start-campaign for market: ${selectedTestMarketRegion}...`, 'info');
+      addLog('info', `Sending request to /api/engine/start-campaign for market: ${selectedTestMarketRegion}...`);
       const startResponse = await fetch('/api/engine/start-campaign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -419,10 +513,10 @@ const EngineControlView: React.FC = (): JSX.Element => {
       }
 
       if (startResult.success) {
-        addLog(`Start campaign API success: ${startResult.message}`, 'success');
-        addLog(`Batch details: Attempted: ${startResult.attempted}, Succeeded: ${startResult.succeeded}, Failed: ${startResult.failed}`, 'info');
+        addLog('success', `Start campaign API success: ${startResult.message}`);
+        addLog('info', `Batch details: Attempted: ${startResult.attempted}, Succeeded: ${startResult.succeeded}, Failed: ${startResult.failed}`);
         if (startResult.processing_errors && startResult.processing_errors.length > 0) {
-            addLog(`Encountered ${startResult.processing_errors.length} errors during batch processing. Check logs.`, 'warning', startResult.processing_errors);
+            addLog('warning', `Encountered ${startResult.processing_errors.length} errors during batch processing. Check logs.`, startResult.processing_errors);
         }
         setEngineStatus('running'); // Reflects that a batch was started
       } else {
@@ -431,7 +525,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
     } catch (error: unknown) {
       if (error instanceof Error) {
         const errorMessage = error.message;
-        addLog(`Error during engine start sequence: ${errorMessage}`, 'error');
+        addLog('error', `Error during engine start sequence: ${errorMessage}`);
         setError(errorMessage);
         setEngineStatus('error');
       }
@@ -442,7 +536,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
   };
 
   const handleStopEngine = async () => {
-    addLog('Sending request to /api/engine/stop-campaign...', 'info');
+    addLog('info', 'Sending request to /api/engine/stop-campaign...');
     setIsLoading(true);
     setEngineStatus('stopping');
     setError(null);
@@ -455,7 +549,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
       }
 
       if (result.success) {
-        addLog(`Stop campaign API success: ${result.message}`, 'success');
+        addLog('success', `Stop campaign API success: ${result.message}`);
         setEngineStatus('stopped'); 
       } else {
         throw new Error(result.error || 'Stop campaign API returned success:false');
@@ -463,7 +557,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
     } catch (error: unknown) {
       if (error instanceof Error) {
         const errorMessage = error.message;
-        addLog(`Error stopping engine: ${errorMessage}`, 'error');
+        addLog('error', `Error stopping engine: ${errorMessage}`);
         setError(errorMessage);
         setEngineStatus('error'); 
       }
@@ -476,7 +570,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
 
   const handleRefreshLogs = async (): Promise<void> => {
     try {
-      addLog('Refreshing logs...', 'info');
+      addLog('info', 'Refreshing logs...');
       // Add log refresh implementation here
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -622,6 +716,55 @@ const EngineControlView: React.FC = (): JSX.Element => {
               <StopCircle size={20} className="mr-2" /> Stop Engine
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Campaign Scheduler Section */}
+      <div className="mt-8 p-6 bg-base-200 rounded-lg shadow-xl">
+        <h2 className="text-2xl font-semibold mb-6 text-primary flex items-center">
+          <PlayCircle className="mr-3 h-7 w-7" /> Campaign Scheduler
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+          {/* Campaign Selection Dropdown */}
+          <div className="form-control w-full">
+            <label className="label">
+              <span className="label-text">Select Campaign</span>
+            </label>
+            <select 
+              className="select select-bordered w-full"
+              value={selectedCampaignId}
+              onChange={(e) => setSelectedCampaignId(e.target.value)}
+              disabled={isLoading || allCampaigns.length === 0}
+            >
+              {allCampaigns.length === 0 && <option value="">{isLoading ? 'Loading campaigns...' : 'No campaigns found'}</option>}
+              {allCampaigns.map((campaign) => (
+                <option key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* TimePicker for Interval */}
+          <div className="form-control w-full">
+            <TimePicker 
+              label="Select Start Offset Interval"
+              initialInterval={selectedInterval} 
+              onIntervalChange={(interval) => setSelectedInterval(interval)} 
+            />
+          </div>
+        </div>
+
+        {/* Schedule Button */}
+        <div className="mt-6">
+          <button 
+            className={`btn btn-primary w-full md:w-auto ${isScheduling ? 'loading' : ''}`}
+            onClick={handleScheduleCampaign}
+            disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
+          >
+            {isScheduling ? 'Scheduling...' : 'Schedule Campaign Run'}
+          </button>
         </div>
       </div>
 

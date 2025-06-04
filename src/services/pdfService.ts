@@ -100,7 +100,6 @@ export const generateLoiPdf = async (
     const { width, height } = page.getSize();
 
     // Load Fonts
-    const helveticaFont = await contentPdfDoc.embedFont(StandardFonts.Helvetica);
     const helveticaBoldFont = await contentPdfDoc.embedFont(StandardFonts.HelveticaBold);
     const timesRomanFont = await contentPdfDoc.embedFont(StandardFonts.TimesRoman);
     const timesRomanItalicFont = await contentPdfDoc.embedFont(StandardFonts.TimesRomanItalic);
@@ -122,11 +121,11 @@ export const generateLoiPdf = async (
     
     const baseFontSize = 14; 
     const titleFontSize = 20; 
-    const subtitleFontSize = 16;
+    const subtitleFontSize = 18;
     const signatureFontSize = 28; 
     const disclaimerFontSize = 12;
 
-    const bodyLineHeight = baseFontSize * 1.2;
+    const bodyLineHeight = baseFontSize * 1.5;
     const disclaimerLineHeight = disclaimerFontSize * 1.2;
     const titleColor = rgb(0,0,0);
     const bodyColor = rgb(0,0,0);
@@ -135,15 +134,19 @@ export const generateLoiPdf = async (
     const disclaimerColor = rgb(0.3,0.3,0.3);
 
     // --- Title ---
-    page.drawText("LETTER OF INTENT TO PURCHASE REAL ESTATE", { // Main Title
-      x: textX, // Or centered: (width - helveticaBoldFont.widthOfTextAtSize("LETTER OF INTENT", titleFontSize)) / 2
+    const titleText = "LETTER OF INTENT TO PURCHASE REAL ESTATE";
+    const titleWidth = helveticaBoldFont.widthOfTextAtSize(titleText, titleFontSize);
+    const centeredX = (width - titleWidth) / 2; // Calculate center position
+    
+    page.drawText(titleText, { // Main Title
+      x: centeredX, // Centered position
       y: currentY,
       font: helveticaBoldFont,
       size: titleFontSize,
       color: titleColor,
     });
     currentY -= titleFontSize * 1.5;
-    currentY -= bodyLineHeight * 0.75; // Added extra spacing (0.75 of a body line) after title
+    currentY -= bodyLineHeight * 2; // Added extra spacing (0.75 of a body line) after title
 
     // --- Property Address Subtitle ---
     // Use type-safe access to personalization data
@@ -151,7 +154,7 @@ export const generateLoiPdf = async (
     page.drawText(streetAddress, {
       x: textX,
       y: currentY,
-      font: helveticaFont,
+      font: timesRomanFont,
       size: subtitleFontSize,
       color: subtitleColor,
     });
@@ -161,7 +164,7 @@ export const generateLoiPdf = async (
     page.drawText(cityStateZip, {
       x: textX,
       y: currentY,
-      font: helveticaFont,
+      font: timesRomanFont,
       size: subtitleFontSize,
       color: subtitleColor,
     });
@@ -170,23 +173,23 @@ export const generateLoiPdf = async (
     // --- Date ---
     const dateText = personalizationData.current_date || "N/A Date";
     page.drawText(dateText, {
-        x: width - pageMargin - helveticaFont.widthOfTextAtSize(dateText, baseFontSize), // Align right
+        x: width - pageMargin - timesRomanFont.widthOfTextAtSize(dateText, baseFontSize), // Align right
         y: currentY,
-        font: helveticaFont,
+        font: timesRomanFont,
         size: baseFontSize,
         color: bodyColor
     });
-    currentY -= bodyLineHeight * 2; // Space after date
+    currentY -= bodyLineHeight * 3; // Space after date
 
     // --- Salutation ---
     page.drawText(`Dear ${personalizationData.greeting_name || "Sir/Madam"},`, {
       x: textX,
       y: currentY,
-      font: helveticaFont,
+      font: timesRomanFont,
       size: baseFontSize,
       color: bodyColor,
     });
-    currentY -= bodyLineHeight * 2; // Extra space after salutation
+    currentY -= bodyLineHeight * 1.5; // Extra space after salutation
 
     // --- Body Paragraph 1 (Introductory) ---
     const introParagraph = `We are pleased to submit this Letter of Intent ("LOI") to purchase the property located at ${personalizationData.property_address || "N/A Property Address"} (the "Property") under the terms and conditions set forth herein. This LOI is an expression of our serious interest in acquiring the Property.`;
@@ -198,12 +201,12 @@ export const generateLoiPdf = async (
       { label: "Purchase Price:", value: personalizationData.offer_price || "N/A" },
       { label: "Closing Date:", value: personalizationData.closing_date_preference || "To be mutually agreed upon" },
       { label: "Inspection Period:", value: personalizationData.inspection_period || "14 days from acceptance" },
-      { label: "Offer Expiration:", value: personalizationData.offer_expiration_date || "7 days from receipt" }
+      { label: "Offer Expiration:", value: personalizationData.offer_expiration_date || "3 days from receipt" }
     ];
 
     for (const detail of offerDetails) {
       page.drawText(detail.label, {
-        x: textX,
+        x: textX + 20,
         y: currentY,
         font: helveticaBoldFont,
         size: baseFontSize,
@@ -211,7 +214,7 @@ export const generateLoiPdf = async (
       });
       
       page.drawText(detail.value, {
-        x: textX + 150, // Offset for value
+        x: textX + 170, // Offset for value
         y: currentY,
         font: timesRomanFont,
         size: baseFontSize,
@@ -225,17 +228,17 @@ export const generateLoiPdf = async (
     // --- Body Paragraph 2 (Conditions) ---
     const conditionsParagraph = "This Letter of Intent is subject to the preparation and execution of a definitive Purchase Agreement containing terms and conditions satisfactory to both parties. This LOI is non-binding except for the confidentiality provisions herein.";
     currentY = drawWrappedText(page, conditionsParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
-    currentY -= bodyLineHeight;
+    currentY -= bodyLineHeight * 0.5;
 
     // --- Body Paragraph 3 (Confidentiality) ---
     const confidentialityParagraph = "The parties agree to keep the terms of this LOI and all discussions related to the potential purchase of the Property strictly confidential.";
     currentY = drawWrappedText(page, confidentialityParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
-    currentY -= bodyLineHeight * 2;
+    currentY -= bodyLineHeight * 0.5;
 
     // --- Closing ---
     const closingParagraph = "We look forward to your favorable response and the opportunity to move forward with this transaction.";
     currentY = drawWrappedText(page, closingParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor );
-    currentY -= bodyLineHeight * 2;
+    currentY -= bodyLineHeight * 1.5;
 
     // --- Signature Block ---
     page.drawText("Sincerely,", {
@@ -245,7 +248,7 @@ export const generateLoiPdf = async (
       size: baseFontSize,
       color: bodyColor,
     });
-    currentY -= bodyLineHeight * 2;
+    currentY -= bodyLineHeight * 1.5;
 
     // Signature (using Alex Brush font or fallback)
     const signerName = personalizationData.sender_name || "Authorized Representative";
@@ -256,21 +259,31 @@ export const generateLoiPdf = async (
       size: signatureFontSize,
       color: signatureColor,
     });
-    currentY -= bodyLineHeight;
+    currentY -= (bodyLineHeight + 3); // Added 5 more pixels of spacing
 
-    // Company/Title
-    page.drawText("TrueSoul Partners LLC", {
+    // Sender's Title
+    page.drawText("Acquisitions Director", {
       x: textX,
       y: currentY,
-      font: helveticaBoldFont,
+      font: timesRomanFont,
+      size: baseFontSize,
+      color: bodyColor,
+    });
+    currentY -= bodyLineHeight;
+
+    // Company Name
+    page.drawText("True Soul Partners LLC", {
+      x: textX,
+      y: currentY,
+      font: timesRomanFont,
       size: baseFontSize,
       color: bodyColor,
     });
     currentY -= bodyLineHeight;
 
     // --- Disclaimer at Bottom ---
-    currentY = height - (height - 50); // Reset to near bottom of page
-    const disclaimerText = "This Letter of Intent is for discussion purposes only and does not constitute a binding agreement or offer to purchase the Property. No binding obligation shall exist until a definitive Purchase Agreement has been executed by both parties.";
+    currentY = height - (height - 12); // Reset to near bottom of page
+    const disclaimerText = "No binding obligation exists until a definitive Purchase Agreement has been executed by both parties.";
     currentY = drawWrappedText(page, disclaimerText, textX, currentY, timesRomanItalicFont, disclaimerFontSize, textMaxWidth, disclaimerLineHeight, disclaimerColor );
 
     // 3. Merge with Letterhead (if available)

@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback } from 'react';
 
 import { Database } from '@/db_types';
 
-
 // DaisyUI components are available globally, no need to import
 
 type Campaign = Database['public']['Tables']['campaigns']['Row'];
@@ -32,6 +31,8 @@ export default function CampaignsView() {
     min_interval_seconds: 180,
     max_interval_seconds: 360,
     dry_run: false,
+    time_window_hours: 8,
+    avg_emails_per_hour: 0,
   });
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -117,6 +118,8 @@ export default function CampaignsView() {
       min_interval_seconds: 180,
       max_interval_seconds: 360,
       dry_run: false,
+      time_window_hours: 8,
+      avg_emails_per_hour: 0,
     });
     setEditingId(null);
   };
@@ -186,6 +189,8 @@ export default function CampaignsView() {
           status: formData.status || 'draft',
           is_active: formData.is_active ?? true,
           dry_run: formData.dry_run ?? false,
+          time_window_hours: formData.time_window_hours || 8,
+          avg_emails_per_hour: formData.avg_emails_per_hour || 0,
           updated_at: new Date().toISOString(),
         };
 
@@ -440,6 +445,34 @@ export default function CampaignsView() {
                 />
                 <span className="label-text">Enable dry run mode (no emails will be sent)</span>
               </label>
+            </div>
+
+            <div className="form-control mt-4">
+              <label className="label">
+                <span className="label-text">Time Window (Hours)</span>
+              </label>
+              <input 
+                type="number" 
+                name="time_window_hours" 
+                value={formData.time_window_hours || ''} 
+                onChange={handleInputChange} 
+                className="input input-bordered w-full" 
+                placeholder="e.g., 8 for an 8-hour window"
+              />
+            </div>
+
+            <div className="form-control mt-4">
+              <label className="label">
+                <span className="label-text">Target Avg Emails per Hour</span>
+              </label>
+              <input 
+                type="number" 
+                name="avg_emails_per_hour" 
+                value={formData.avg_emails_per_hour || ''} 
+                onChange={handleInputChange} 
+                className="input input-bordered w-full" 
+                placeholder="e.g., 50"
+              />
             </div>
 
             <div className="modal-action">
