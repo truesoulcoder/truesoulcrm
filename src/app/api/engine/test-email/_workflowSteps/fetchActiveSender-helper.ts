@@ -12,9 +12,8 @@ export async function fetchActiveSender(
   const client = await supabase;
   const { data: sender, error: senderError } = await client
     .from('senders')
-    .select('sender_email, sender_name, credentials_json, is_default, email, name, created_at')
+    .select('sender_email, sender_name')
     .eq('is_active', true)
-    .eq('status', 'active')
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle<SenderData>();
@@ -44,16 +43,14 @@ export async function fetchActiveSender(
     ...sender,
     sender_email: sender.sender_email,
     sender_name: sender.sender_name,
-    email: sender.email || sender.sender_email,
-    name: sender.name || sender.sender_name,
-    credentials_json: sender.credentials_json,
-    is_default: sender.is_default,
+    email: sender.sender_email,
+    name: sender.sender_name,
   };
   
-  if (!validatedSender.sender_email || !validatedSender.sender_name || !validatedSender.credentials_json) {
+  if (!validatedSender.sender_email || !validatedSender.sender_name) {
       await logSystemEvent({
         event_type: 'ENGINE_SENDER_DATA_INCOMPLETE',
-        message: 'Fetched active sender is missing essential fields (email, name, or credentials).',
+        message: 'Fetched active sender is missing essential fields (email, name).',
         details: { sender_id: (sender as any).id, marketRegion: marketRegionNormalizedName },
         campaign_id: campaignId,
       });

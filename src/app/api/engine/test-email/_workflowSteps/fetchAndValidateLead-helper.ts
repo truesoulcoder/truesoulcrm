@@ -17,12 +17,13 @@ function hasMessage(error: unknown): error is { message: string } {
 }
 
 export async function fetchAndValidateLead(
-  supabase: ReturnType<typeof createAdminServerClient>,
+  supabasePromise: ReturnType<typeof createAdminServerClient>,
   leadTableName: string,
   marketRegionNormalizedName: string,
   specificLeadIdToTest?: string | number,
   campaignId?: string
 ): Promise<FineCutLead> {
+  const supabase = await supabasePromise;
   let leadToProcess: FineCutLead | null = null;
 
   if (specificLeadIdToTest) {

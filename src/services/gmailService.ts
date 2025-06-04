@@ -92,21 +92,39 @@ async function sendEmail(
     if (attachments && attachments.length) {
       for (const file of attachments) {
         message.push(`--${boundary}`);
-        message.push(`Content-Type: application/octet-stream; name="${file.filename}"`);
+        // Use the provided contentType if available
+        message.push(`Content-Type: ${file.contentType || 'application/octet-stream'}; name="${file.filename}"`);
         message.push('Content-Transfer-Encoding: base64');
-        message.push(`Content-Disposition: attachment; filename="${file.filename}"`);
+        
+        // Handle inline attachments with Content-ID if provided
+        if (file.contentId) {
+          message.push(`Content-ID: <${file.contentId}>`);
+          message.push('Content-Disposition: inline');
+        } else {
+          message.push(`Content-Disposition: attachment; filename="${file.filename}"`);
+        }
+        
         message.push('');
-        message.push(file.content.toString('base64'));
+        // Split base64 content into lines of 76 characters to prevent encoding issues
+        const base64Content = file.content.toString('base64');
+        const chunks = base64Content.match(/.{1,76}/g) || [];
+        message.push(chunks.join('\r\n'));
       }
     }
     message.push(`--${boundary}--`);
 
-    const rawMessage = Buffer.from(message.join('\r\n'))
+    // Create the raw message string
+    const rawMessageString = message.join('\r\n');
+    
+    // Properly encode the message for Gmail API - must be URL-safe base64
+    // Note: We're not removing padding (=) as it's actually required by the RFC
+    const rawMessage = Buffer.from(rawMessageString)
       .toString('base64')
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
 
     // Type assertion needed to handle the 'any' type safely
-const res = await gmail.users.messages.send({
+    const res = await gmail.users.messages.send({
       userId: impersonatedUserEmail,
       requestBody: { raw: rawMessage },
     });

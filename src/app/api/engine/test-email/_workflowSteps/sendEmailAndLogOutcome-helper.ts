@@ -63,7 +63,6 @@ export async function sendEmailAndLogOutcome(
     );
     
     const logDetails: Partial<EmailLogEntry> = {
-        original_lead_id: String(lead.id),
         contact_name: recipientName,
         contact_email: recipientEmail,
         property_address: lead.property_address,
@@ -91,7 +90,6 @@ export async function sendEmailAndLogOutcome(
      await logToSupabaseTable( // Using imported util
         supabase,
         { 
-            original_lead_id: String(lead.id),
             contact_name: recipientName, 
             contact_email: recipientEmail, 
             property_address: lead.property_address,
@@ -102,12 +100,12 @@ export async function sendEmailAndLogOutcome(
             email_status: 'FAILED_SENDING', 
             email_error_message: emailError.message,
             email_sent_at: new Date().toISOString(),
-            campaign_id: campaignId || 'TEST_EMAIL_CAMPAIGN',
+            campaign_id: campaignId,
         }, 
         lead.id, 
         campaignId
     );
-    await logSystemEvent({ event_type: 'ENGINE_EMAIL_SEND_ERROR', message: `Failed to send email to ${recipientEmail} for lead ${lead.id}: ${emailError.message}`, details: { lead_id: lead.id, error: emailError, recipient: recipientEmail, marketRegion: marketRegionNormalizedName, original_lead_id: String(lead.id) }, campaign_id: campaignId });
+    await logSystemEvent({ event_type: 'ENGINE_EMAIL_SEND_ERROR', message: `Failed to send email to ${recipientEmail} for lead ${lead.id}: ${emailError.message}`, details: { lead_id: lead.id, error: emailError, recipient: recipientEmail, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
     return { success: false, error: emailError.message };
   }
 }

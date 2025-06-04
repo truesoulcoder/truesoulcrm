@@ -1,29 +1,50 @@
 // src/app/api/market-regions/route.ts
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies, type ReadonlyRequestCookies } from 'next/headers'; // Import ReadonlyRequestCookies
+import { cookies } from 'next/headers'; 
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // Get the cookie store from next/headers and await it
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async getAll() {
-          return cookieStore.getAll();
+        get(name: string): string | undefined {
+          const cookie = cookieStore.get(name);
+          return cookie ? cookie.value : undefined;
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            try {
-              cookieStore.set(name, value, options);
-            } catch (error) {
-              // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing user sessions.
-              // console.error('Error in setAll for cookie:', name, error);
-            }
-          });
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            const { domain, path, secure, httpOnly, maxAge, sameSite } = options;
+            const setOptions: Record<string, any> = {};
+            if (domain !== undefined) setOptions.domain = domain;
+            if (path !== undefined) setOptions.path = path;
+            if (secure !== undefined) setOptions.secure = secure;
+            if (httpOnly !== undefined) setOptions.httpOnly = httpOnly;
+            if (maxAge !== undefined) setOptions.maxAge = maxAge;
+            if (sameSite !== undefined) setOptions.sameSite = sameSite as 'strict' | 'lax' | 'none';
+
+            cookieStore.set({ name, value, ...setOptions });
+          } catch (error: any) {
+            // console.error('Error in set for cookie:', name, error);
+          }
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            const { domain, path, secure, httpOnly, sameSite } = options;
+            const removeOptions: Record<string, any> = { maxAge: 0 }; // Key for removal
+            if (domain !== undefined) removeOptions.domain = domain;
+            if (path !== undefined) removeOptions.path = path;
+            if (secure !== undefined) removeOptions.secure = secure;
+            if (httpOnly !== undefined) removeOptions.httpOnly = httpOnly;
+            if (sameSite !== undefined) removeOptions.sameSite = sameSite as 'strict' | 'lax' | 'none';
+            
+            cookieStore.set({ name, value: '', ...removeOptions });
+          } catch (error: any) {
+            // console.error('Error in remove for cookie:', name, error);
+          }
         },
       },
     }
@@ -44,7 +65,8 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Supabase error fetching market regions:', error);
-      return NextResponse.json({ error: `Error fetching market regions: ${error.message}` }, { status: 500 });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return NextResponse.json({ error: `Error fetching market regions: ${errorMessage}` }, { status: 500 });
     }
 
     if (!marketRegions || marketRegions.length === 0) {
@@ -53,8 +75,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(marketRegions, { status: 200 });
 
-  } catch (e: any) {
+  } catch (e: unknown) { // Catch error as unknown for type safety
     console.error('Error in /api/market-regions GET handler:', e);
-    return NextResponse.json({ error: e.message || 'An unexpected error occurred.' }, { status: 500 });
+    const message = e instanceof Error ? e.message : 'An unexpected error occurred.';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
