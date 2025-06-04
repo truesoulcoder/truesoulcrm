@@ -121,7 +121,7 @@ export const generateLoiPdf = async (
     
     const baseFontSize = 14; 
     const titleFontSize = 20; 
-    const subtitleFontSize = 16;
+    const subtitleFontSize = 18;
     const signatureFontSize = 28; 
     const disclaimerFontSize = 12;
 
@@ -146,7 +146,7 @@ export const generateLoiPdf = async (
       color: titleColor,
     });
     currentY -= titleFontSize * 1.5;
-    currentY -= bodyLineHeight * 2; // Added extra spacing (0.75 of a body line) after title
+    currentY -= bodyLineHeight * 0.25; // Added extra spacing (0.75 of a body line) after title
 
     // --- Property Address Subtitle ---
     // Use type-safe access to personalization data
@@ -164,11 +164,11 @@ export const generateLoiPdf = async (
     page.drawText(fullAddressLine, {
       x: centeredAddressX, // Use centered X
       y: currentY,
-      font: timesRomanFont,
+      font: helveticaBoldFont,
       size: subtitleFontSize,
       color: subtitleColor,
     });
-    currentY -= subtitleFontSize * 1.5; // Space after address block (adjust as needed for single line)
+    currentY -= subtitleFontSize * 2; // Space after address block (adjust as needed for single line)
 
     // --- Date ---
     const dateText = personalizationData.current_date || "";
@@ -194,7 +194,7 @@ export const generateLoiPdf = async (
     // --- Body Paragraph 1 (Introductory) ---
     const introParagraph = `We are pleased to submit this Letter of Intent ("LOI") to purchase the property located at ${personalizationData.property_address || "N/A Property Address"} (the "Property") under the terms and conditions set forth herein. This LOI is an expression of our serious interest in acquiring the Property.`;
     currentY = drawWrappedText(page, introParagraph, textX, currentY, timesRomanFont, baseFontSize, textMaxWidth, bodyLineHeight, bodyColor ); // Updated call
-    currentY -= bodyLineHeight; // Space after paragraph
+    currentY -= bodyLineHeight * 0.5; // Space after paragraph
 
     // --- Offer Summary (Simplified Key-Value) ---
     const offerDetails = [

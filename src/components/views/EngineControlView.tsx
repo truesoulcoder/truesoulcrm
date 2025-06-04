@@ -236,11 +236,8 @@ const EngineControlView: React.FC = (): JSX.Element => {
             type: newRawLog.type as LogEntry['type'],
             data: newRawLog.data,
           };
-          // Append new log and then slice to keep only the last MAX_DISPLAY_LOGS
-          setConsoleLogs((prevLogs) => {
-            const updatedLogs = [...prevLogs, newLogEntry];
-            return updatedLogs.slice(-MAX_DISPLAY_LOGS);
-          });
+          // Prepend new log and keep only the latest 10 entries
+          setConsoleLogs(prevLogs => [newLogEntry, ...prevLogs.slice(0, 9)]);
         }
       )
       .subscribe((status, err) => {
@@ -258,11 +255,9 @@ const EngineControlView: React.FC = (): JSX.Element => {
                 : `Log subscription error. Status: ${status}. Details: ${err ? JSON.stringify(err) : 'Unknown error'}`, 
               type: 'error'
             };
-            const updatedLogs = [
-              ...prevLogs,
-              newErrorLog
-            ];
-            return updatedLogs.slice(-MAX_DISPLAY_LOGS);
+            // Prepend new error log and keep only the latest 10 entries
+            const updatedLogs = [newErrorLog, ...prevLogs.slice(0, 9)];
+            return updatedLogs;
           });
         }
       });
@@ -384,37 +379,34 @@ const EngineControlView: React.FC = (): JSX.Element => {
     addLog('info', `Attempting to schedule campaign: ${campaignName} (ID: ${campaignUuid}) with offset: ${selectedInterval}`);
 
     try {
-      // Attempt 1: Call with { p_campaign_id, p_start_offset }
-      addLog('info', 'Scheduler: Attempting call with order 1 (id, offset)');
-      let { data, error } = await supabase.rpc('schedule_campaign', {
+      // Call the uniquely named function
+      addLog('info', 'Scheduler: Calling schedule_campaign_by_id_offset (id, offset)');
+      let { data, error } = await supabase.rpc('schedule_campaign_by_id_offset', {
         p_campaign_id: campaignUuid,
         p_start_offset: selectedInterval
       });
 
-      // Check for PostgreSQL ambiguity error (code 42883)
-      if (error && error.code === '42883') {
-        addLog('warning', `Scheduler: Ambiguity with order 1 (code ${error.code}). Retrying with order 2 (offset, id).`);
-        // Attempt 2: Call with { p_start_offset, p_campaign_id }
-        const response2 = await supabase.rpc('schedule_campaign', {
-          p_start_offset: selectedInterval,
-          p_campaign_id: campaignUuid
-        });
-        data = response2.data;
-        error = response2.error; // Update error with the result of the second attempt
-      }
-
       if (error) {
-        // This will be the error from the first attempt if it wasn't ambiguity,
-        // or the error from the second attempt if the first was ambiguity.
-        console.error('Error calling schedule_campaign RPC:', error);
-        addLog('error', `Failed to schedule campaign ${campaignName}: ${error.message}`, { code: error.code, details: error.details });
-        setError(`RPC Error: ${error.message} (Code: ${error.code})`);
+        console.error('Error calling schedule_campaign_by_id_offset RPC:', error);
+
+        const rpcErrorMessage = error.message || JSON.stringify(error);
+        const rpcErrorCode = error.code || 'N/A';
+        const rpcErrorDetails = error.details || 'N/A';
+
+        addLog(
+          'error',
+          `Failed to schedule campaign ${campaignName}: ${rpcErrorMessage}`,
+          { code: rpcErrorCode, details: rpcErrorDetails, rawError: error } // Add rawError for inspection in UI log data
+        );
+        setError(
+          `RPC Error: ${rpcErrorMessage}` + (error.code ? ` (Code: ${error.code})` : '')
+        );
       } else {
         addLog('success', `Successfully scheduled campaign ${campaignName} to run with offset: ${selectedInterval}`, { result: data });
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-      console.error('Exception calling schedule_campaign RPC:', e);
+      console.error('Exception calling schedule_campaign_by_id_offset RPC:', e);
       addLog('error', `Exception while scheduling campaign ${campaignName}: ${errorMessage}`);
       setError(`Exception: ${errorMessage}`);
     }
