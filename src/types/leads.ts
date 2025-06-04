@@ -11,5 +11,5 @@ export interface FineCutLead {
   assessed_total?: number | null; // Used for offer calculation
   // The following are typically calculated or come from other sources:
   // offer_price, closing_date_preference, current_date, greeting_name
-  [key: string]: any; // Allows for other properties from the database table
+  [key: string]: unknown; // Allows for other properties from the database table
 }

@@ -1,15 +1,20 @@
 "use client";
 
+import { type Database } from '@/types/supabase';
 import { createBrowserClient } from '@supabase/ssr';
-import { format } from 'date-fns';
 import { useState, useEffect, useCallback } from 'react';
-
-import { Database } from '@/db_types';
 
 // DaisyUI components are available globally, no need to import
 
 type Campaign = Database['public']['Tables']['campaigns']['Row'];
 type MarketRegion = { name: string }; // Changed from market_region to name
+
+// Adjusted Sender type structure based on lint feedback
+type Sender = {
+  id: string; // UUID
+  sender_email: string; // Used for identification and display
+  is_active: boolean | null; // is_active can be boolean or null
+};
 
 export default function CampaignsView() {
   const supabase = createBrowserClient<Database>(
@@ -18,6 +23,8 @@ export default function CampaignsView() {
   );
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [marketRegions, setMarketRegions] = useState<MarketRegion[]>([]);
+  const [activeSenders, setActiveSenders] = useState<Sender[]>([]);
+  const [selectedSenderIds, setSelectedSenderIds] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState<Partial<Campaign>>({
@@ -35,6 +42,24 @@ export default function CampaignsView() {
     avg_emails_per_hour: 0,
   });
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const fetchActiveSenders = useCallback(async () => {
+    try {
+      // Ensure 'is_active' is the correct column name for filtering active senders
+      // Selecting sender_email for display based on lint feedback
+      const { data, error } = await supabase
+        .from('senders') // Assuming your table is named 'senders'
+        .select('id, sender_email, is_active') // Select necessary fields
+        .eq('is_active', true) // Filter for active senders (Supabase handles null correctly here)
+        .order('sender_email'); // Order by sender_email
+
+      if (error) throw error;
+      setActiveSenders(data || []);
+    } catch (error) {
+      console.error('Error fetching active senders:', error);
+      // Optionally, set an error state to display to the user
+    }
+  }, [supabase]);
 
   const fetchCampaigns = useCallback(async () => {
     try {
@@ -73,6 +98,7 @@ export default function CampaignsView() {
       try {
         await fetchCampaigns();
         await fetchMarketRegions();
+        await fetchActiveSenders();
       } catch (error) {
         console.error('Error loading data:', error);
         // TODO: Add error handling (e.g., show error toast)
@@ -80,7 +106,7 @@ export default function CampaignsView() {
     };
     
     void loadData();
-  }, [fetchCampaigns, fetchMarketRegions]);
+  }, [fetchCampaigns, fetchMarketRegions, fetchActiveSenders]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
@@ -120,8 +146,10 @@ export default function CampaignsView() {
       dry_run: false,
       time_window_hours: 8,
       avg_emails_per_hour: 0,
+      senders_used: [],
     });
     setEditingId(null);
+    setSelectedSenderIds([]); // Reset selected senders
   };
 
   const handleOpenModal = (campaign?: Campaign) => {
@@ -134,8 +162,9 @@ export default function CampaignsView() {
         max_interval_seconds: campaign.max_interval_seconds || 360,
       });
       setEditingId(campaign.id);
+      setSelectedSenderIds(campaign.senders_used || []); // Load existing senders
     } else {
-      resetForm();
+      resetForm(); // This will also clear selectedSenderIds via the updated resetForm
     }
     setIsModalOpen(true);
   };
@@ -170,16 +199,11 @@ export default function CampaignsView() {
       setIsLoading(true);
 
       try {
-        // Create a new type that matches our form data structure
-        type CampaignFormData = Omit<Campaign, 'id' | 'created_at' | 'updated_at'> & {
-          id?: string;
-          created_at?: string | null;
-          updated_at: string;
-        };
-        
-        const campaignData: CampaignFormData = {
-          ...formData,
-          name: formData.name!,
+        // CampaignFormData type definition removed, defining payload structure directly
+
+        const campaignData = {
+          ...formData, // formData is Partial<Campaign>, so id and created_at might be present
+          name: formData.name!, // Asserting required fields
           description: formData.description!,
           market_region: formData.market_region!,
           daily_limit: formData.daily_limit!,
@@ -192,21 +216,46 @@ export default function CampaignsView() {
           time_window_hours: formData.time_window_hours || 8,
           avg_emails_per_hour: formData.avg_emails_per_hour || 0,
           updated_at: new Date().toISOString(),
+          senders_used: selectedSenderIds,
         };
 
         if (editingId) {
-          // Update existing campaign
+          // Destructure created_at from campaignData. The rest are other properties.
+          const { created_at, ...otherCampaignDataProperties } = campaignData;
+
+          // Initialize the payload with properties other than id and created_at.
+          // Explicitly type the payload to match Supabase's expected Update type for 'campaigns'.
+          const payload: Database['public']['Tables']['campaigns']['Update'] = {
+            ...otherCampaignDataProperties,
+            updated_at: new Date().toISOString(), // Ensure updated_at is always fresh for updates
+          };
+
+          // If created_at from campaignData is a string, include it in the payload.
+          // If it's null or undefined, it will remain undefined in the payload, satisfying the type.
+          if (typeof created_at === 'string') {
+            payload.created_at = created_at;
+          }
+
+          // Update existing campaign using the constructed payload.
           const { error } = await supabase
             .from('campaigns')
-            .update(campaignData)
-            .eq('id', editingId);
+            .update(payload)
+            .eq('id', editingId); // Use editingId (or id from campaignData if preferred and available)
 
           if (error) throw error;
         } else {
           // Create new campaign
+          // Ensure created_at is not null for insert, as Supabase expects string | undefined
+          const { created_at, ...otherCampaignDataProperties } = campaignData;
+          const payloadForInsert: Database['public']['Tables']['campaigns']['Insert'] = {
+            ...otherCampaignDataProperties,
+            created_at: created_at === null ? undefined : created_at, // Handle null for created_at
+            updated_at: new Date().toISOString(), // Set updated_at for new records as well
+          };
+
           const { error } = await supabase
             .from('campaigns')
-            .insert([campaignData as any]);
+            .insert([payloadForInsert]);
 
           if (error) throw error;
         }
@@ -473,6 +522,36 @@ export default function CampaignsView() {
                 className="input input-bordered w-full" 
                 placeholder="e.g., 50"
               />
+            </div>
+
+            {/* Sender Selection Section */}
+            <div className="form-control mt-4">
+              <label className="label">
+                <span className="label-text">Select Senders</span>
+              </label>
+              <div className="border border-base-300 rounded-md p-4 max-h-60 overflow-y-auto">
+                {activeSenders.length === 0 && <p className="text-sm text-gray-500">No active senders found.</p>}
+                {activeSenders.map((sender) => (
+                  <div key={sender.id} className="form-control">
+                    <label className="label cursor-pointer justify-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedSenderIds.includes(sender.id)}
+                        onChange={(e) => {
+                          const senderId = sender.id;
+                          setSelectedSenderIds(prevSelectedIds =>
+                            e.target.checked
+                              ? [...prevSelectedIds, senderId]
+                              : prevSelectedIds.filter(id => id !== senderId)
+                          );
+                        }}
+                        className="checkbox checkbox-primary"
+                      />
+                      <span className="label-text">{sender.sender_email}</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="modal-action">

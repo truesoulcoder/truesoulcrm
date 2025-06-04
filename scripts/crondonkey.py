@@ -59,15 +59,20 @@ def save_state(last_shutdown_time_utc, processed_job_ids):
 # --- API Interaction ---
 def send_job_to_api(job_id, processed_job_ids_current_session): # Modified to accept current session's processed IDs
     """Sends the job ID to the configured email workflow API."""
-{{ ... }}
+    logger.info(f"Attempting to send job_id '{job_id}' to API: {API_ENDPOINT}")
+    headers = {
+        "Content-Type": "application/json"
+    }
+    # API_TOKEN is None, so no Authorization header added
+    payload = {"job_id": job_id}
+
     try:
-        response = requests.post(API_ENDPOINT, json=payload, headers=headers, timeout=60) 
+        response = requests.post(API_ENDPOINT, json=payload, headers=headers, timeout=60)
         response.raise_for_status()
         response_summary = response.text[:500]
         logger.info(f"Successfully sent job_id '{job_id}'. Status: {response.status_code}. Response: {response_summary}")
         processed_job_ids_current_session.add(job_id) # Add to current session's set on success
         return True
-{{ ... }}
     except requests.exceptions.RequestException as e:
         logger.error(f"Error sending job_id '{job_id}' to API {API_ENDPOINT}: {e}")
         if e.response is not None:

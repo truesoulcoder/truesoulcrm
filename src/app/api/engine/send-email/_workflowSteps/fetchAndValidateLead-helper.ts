@@ -1,8 +1,8 @@
-// src/app/api/engine/test-email/workflow/fetchAndValidateLead-helper.ts
-import { validateLeadFields } from '@/app/api/engine/test-email/_workflowSteps/_utils'; // Adjusted path
+// src/app/api/engine/send-email/_workflowSteps/fetchAndValidateLead-helper.ts
+import { validateLeadFields } from '@/app/api/engine/send-email/_workflowSteps/_utils'; // Corrected path
 import { createAdminServerClient } from '@/lib/supabase/server';
 import { logSystemEvent } from '@/services/logService';
-import { FineCutLead } from '@/types/supabase';
+import { FineCutLead } from '@/types/leads';
 
 
 const MAX_LEAD_FETCH_ATTEMPTS = 20;
@@ -12,7 +12,7 @@ function hasMessage(error: unknown): error is { message: string } {
     typeof error === 'object' &&
     error !== null &&
     'message' in error &&
-    typeof (error as any).message === 'string'
+    typeof (error as Error).message === 'string'
   );
 }
 

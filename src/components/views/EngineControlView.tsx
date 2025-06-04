@@ -15,7 +15,7 @@ interface LogEntry {
   timestamp: string;
   message: string;
   type: 'info' | 'error' | 'success' | 'warning' | 'engine';
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 interface EngineLogTablePayload {
@@ -23,17 +23,17 @@ interface EngineLogTablePayload {
   processed_at: string | null; // Changed from timestamp to processed_at
   message: string;
   type: LogEntry['type'];
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 type EngineStatus = 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'test_sending';
 
 interface TestEmailResponse {
   success: boolean;
-  message?: string;
+  messageId?: string; // send-email route returns messageId
+  message?: string; // General message, can be kept for broader compatibility or if send-email also returns it
   error?: string;
-  lead_id?: number;
-  subject?: string;
+  // lead_id and subject are not directly returned by send-email, they are logged server-side
 }
 
 interface StartCampaignResponse {
@@ -43,7 +43,7 @@ interface StartCampaignResponse {
   attempted?: number;
   succeeded?: number;
   failed?: number;
-  processing_errors?: any[];
+  processing_errors?: string[];
 }
 
 interface ResumeCampaignResponse {
@@ -261,11 +261,11 @@ const EngineControlView: React.FC = (): JSX.Element => {
     };
   }, []); // Empty dependency array, supabase client is stable
 
-  const addLog = useCallback((type: LogEntry['type'], message: string, data?: any) => {
+  const addLog = useCallback((type: LogEntry['type'], message: string, data?: Record<string, unknown>) => {
     setConsoleLogs(prevLogs => [
       ...prevLogs,
       {
-        id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)`,
+        id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)}`,
         timestamp: new Date().toISOString(),
         message,
         type,
@@ -300,7 +300,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
             if (parsedError && typeof parsedError.error === 'string') {
               errorDetails.error = parsedError.error;
             }
-          } catch (e) {
+          } catch {}{
             // Response body wasn't JSON or error field was not a string, use default statusText based error
           }
           throw new Error(errorDetails.error);
@@ -315,11 +315,11 @@ const EngineControlView: React.FC = (): JSX.Element => {
 
         // Perform a runtime check to ensure responseData is an array of MarketRegion objects
         if (!Array.isArray(responseData) || !responseData.every(
-            (item: any): item is MarketRegion => // Type predicate for better type inference
+            (item: unknown): item is MarketRegion => // Type predicate for better type inference
                 typeof item === 'object' && item !== null &&
-                typeof item.id === 'string' &&
-                typeof item.name === 'string' &&
-                typeof item.normalized_name === 'string'
+                'id' in item && typeof item.id === 'string' &&
+                'name' in item && typeof item.name === 'string' &&
+                'normalized_name' in item && typeof item.normalized_name === 'string'
             // Not strictly checking lead_count here as it's not used for the selection logic
         )) {
           throw new Error('Invalid data format for market regions. Expected an array of MarketRegion objects.');
@@ -338,7 +338,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
           addLog('warning', 'No market regions found.');
           setSelectedTestMarketRegion(undefined); // Explicitly set to undefined
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         addLog('error', `Error fetching market regions: ${errorMessage}`);
         setError(`Failed to load market regions: ${errorMessage}`);
@@ -358,9 +358,9 @@ const EngineControlView: React.FC = (): JSX.Element => {
       .channel(engineLogChannelName)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'email_log' }, // Listen to all changes for now
+        { event: '*', schema: 'public', table: 'engine_log' }, // Listen to all changes for now
         (payload) => {
-          const record = payload.new as EmailLogEntry;
+          const record = payload.new as EngineLogEntry;
           let message = ` Log (${payload.eventType}): `; 
           if (record && record.contact_email) {
             message += `Email to ${record.contact_email} - Status: ${record.email_status}`;
@@ -399,21 +399,39 @@ const EngineControlView: React.FC = (): JSX.Element => {
 
     setIsScheduling(true);
     const campaignName = allCampaigns.find(c => c.id === selectedCampaignId)?.name || 'Unknown Campaign';
-    addLog('info', `Attempting to schedule campaign: ${campaignName} (ID: ${selectedCampaignId}) with start offset: ${selectedInterval}`);
+    // Assuming selectedCampaignId is already a valid UUID string from the database.
+    const campaignUuid = selectedCampaignId;
+
+    addLog('info', `Attempting to schedule campaign: ${campaignName} (ID: ${campaignUuid}) with offset: ${selectedInterval}`);
 
     try {
-      const { data, error: rpcError } = await supabase.rpc('schedule_campaign', {
-        p_campaign_id: selectedCampaignId,
-        p_start_offset: selectedInterval,
+      // Attempt 1: Call with { p_campaign_id, p_start_offset }
+      addLog('info', 'Scheduler: Attempting call with order 1 (id, offset)');
+      let { data, error } = await supabase.rpc('schedule_campaign', {
+        p_campaign_id: campaignUuid,
+        p_start_offset: selectedInterval
       });
 
-      if (rpcError) {
-        console.error('Error calling schedule_campaign RPC:', rpcError);
-        addLog('error', `Failed to schedule campaign ${campaignName}: ${rpcError.message}`, rpcError.details);
-        setError(`RPC Error: ${rpcError.message}`);
+      // Check for PostgreSQL ambiguity error (code 42883)
+      if (error && error.code === '42883') {
+        addLog('warning', `Scheduler: Ambiguity with order 1 (code ${error.code}). Retrying with order 2 (offset, id).`);
+        // Attempt 2: Call with { p_start_offset, p_campaign_id }
+        const response2 = await supabase.rpc('schedule_campaign', {
+          p_start_offset: selectedInterval,
+          p_campaign_id: campaignUuid
+        });
+        data = response2.data;
+        error = response2.error; // Update error with the result of the second attempt
+      }
+
+      if (error) {
+        // This will be the error from the first attempt if it wasn't ambiguity,
+        // or the error from the second attempt if the first was ambiguity.
+        console.error('Error calling schedule_campaign RPC:', error);
+        addLog('error', `Failed to schedule campaign ${campaignName}: ${error.message}`, { code: error.code, details: error.details });
+        setError(`RPC Error: ${error.message} (Code: ${error.code})`);
       } else {
-        addLog('success', `Successfully called schedule_campaign for ${campaignName}. Result: ${JSON.stringify(data)}`, data);
-        // Depending on the RPC's return, you might want to parse 'data' more meaningfully
+        addLog('success', `Successfully scheduled campaign ${campaignName} to run with offset: ${selectedInterval}`, { result: data });
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
@@ -430,19 +448,23 @@ const EngineControlView: React.FC = (): JSX.Element => {
       setError('A market region must be selected to send a test email.');
       return;
     }
-    addLog('info', 'Sending request to /api/engine/test-email...');
+    // Updated log message to reflect the new endpoint
+    addLog('info', 'Sending request to /api/engine/send-email for test email...');
     setIsLoading(true);
     setEngineStatus('test_sending');
     setError(null);
 
     try {
-      const response = await fetch('/api/engine/test-email', { 
+      // Changed fetch URL to /api/engine/send-email
+      const response = await fetch('/api/engine/send-email', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           marketRegionNormalizedName: selectedTestMarketRegion,
-          sendToLead: false, // Corrected for test email flow
+          sendToLead: false, // This is key for triggering test email behavior
           sendPdf: true,    // Explicitly send true for test emails
+          // campaignId: undefined, // Explicitly not sending for a simple test email for now
+          // specificLeadIdToTest: undefined, // Not selecting a specific lead for this test
         }),
       });
 
@@ -453,10 +475,18 @@ const EngineControlView: React.FC = (): JSX.Element => {
       }
 
       if (result.success) {
-        addLog('success', `Test email API success: ${result.message}`);
-        if (result.lead_id) {
-            addLog('info', `Test email processed for lead ID: ${result.lead_id}, Subject: "${result.subject}"`);
+        // Adjusted success log based on send-email response
+        let successMsg = 'Test email API success.';
+        if (result.messageId) {
+          successMsg += ` Message ID: ${result.messageId}.`;
         }
+        if (result.message) {
+            successMsg += ` Message: ${result.message}.`;
+        }
+        addLog('success', successMsg);
+        // lead_id and subject are logged server-side, not directly available here
+        // If needed, a generic message indicating test email was processed for the selected market can be added.
+        addLog('info', `Test email for market region '${selectedTestMarketRegion}' processed.`);
       } else {
         throw new Error(result.error || 'Test email API returned success:false');
       }
@@ -516,7 +546,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
         addLog('success', `Start campaign API success: ${startResult.message}`);
         addLog('info', `Batch details: Attempted: ${startResult.attempted}, Succeeded: ${startResult.succeeded}, Failed: ${startResult.failed}`);
         if (startResult.processing_errors && startResult.processing_errors.length > 0) {
-            addLog('warning', `Encountered ${startResult.processing_errors.length} errors during batch processing. Check logs.`, startResult.processing_errors);
+            addLog('warning', `Encountered ${startResult.processing_errors.length} errors during batch processing. Check logs.`, { errors: startResult.processing_errors });
         }
         setEngineStatus('running'); // Reflects that a batch was started
       } else {
@@ -568,17 +598,6 @@ const EngineControlView: React.FC = (): JSX.Element => {
     }
   };
 
-  const handleRefreshLogs = async (): Promise<void> => {
-    try {
-      addLog('info', 'Refreshing logs...');
-      // Add log refresh implementation here
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Refresh error:', error.message);
-      }
-    }
-  };
-
   const handleStartClick = async (): Promise<void> => {
     try {
       await handleStartEngine();
@@ -605,16 +624,6 @@ const EngineControlView: React.FC = (): JSX.Element => {
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error('Error stopping engine:', error.message);
-      }
-    }
-  };
-
-  const handleRefreshClick = async (): Promise<void> => {
-    try {
-      await handleRefreshLogs();
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error refreshing logs:', error.message);
       }
     }
   };
@@ -716,55 +725,52 @@ const EngineControlView: React.FC = (): JSX.Element => {
               <StopCircle size={20} className="mr-2" /> Stop Engine
             </button>
           </div>
-        </div>
-      </div>
 
-      {/* Campaign Scheduler Section */}
-      <div className="mt-8 p-6 bg-base-200 rounded-lg shadow-xl">
-        <h2 className="text-2xl font-semibold mb-6 text-primary flex items-center">
-          <PlayCircle className="mr-3 h-7 w-7" /> Campaign Scheduler
-        </h2>
+          {/* Campaign Scheduler Controls */}
+          <div className="mt-6 border-t pt-6">
+            <h3 className="text-lg font-semibold mb-4">Schedule Campaign</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              {/* Campaign Selection Dropdown */}
+              <div className="form-control w-full">
+                <label className="label">
+                  <span className="label-text">Select Campaign</span>
+                </label>
+                <select 
+                  className="select select-bordered w-full"
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                  disabled={isLoading || allCampaigns.length === 0}
+                >
+                  {allCampaigns.length === 0 && <option value="">{isLoading ? 'Loading campaigns...' : 'No campaigns found'}</option>}
+                  {allCampaigns.map((campaign) => (
+                    <option key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-          {/* Campaign Selection Dropdown */}
-          <div className="form-control w-full">
-            <label className="label">
-              <span className="label-text">Select Campaign</span>
-            </label>
-            <select 
-              className="select select-bordered w-full"
-              value={selectedCampaignId}
-              onChange={(e) => setSelectedCampaignId(e.target.value)}
-              disabled={isLoading || allCampaigns.length === 0}
-            >
-              {allCampaigns.length === 0 && <option value="">{isLoading ? 'Loading campaigns...' : 'No campaigns found'}</option>}
-              {allCampaigns.map((campaign) => (
-                <option key={campaign.id} value={campaign.id}>
-                  {campaign.name}
-                </option>
-              ))}
-            </select>
+              {/* TimePicker for Interval */}
+              <div className="form-control w-full">
+                <TimePicker 
+                  label="Start Offset"
+                  initialInterval={selectedInterval} 
+                  onIntervalChange={(interval) => setSelectedInterval(interval)} 
+                />
+              </div>
+
+              {/* Schedule Button */}
+              <div className="form-control w-full">
+                <button 
+                  className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
+                  onClick={handleScheduleCampaign}
+                  disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
+                >
+                  {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
+                </button>
+              </div>
+            </div>
           </div>
-
-          {/* TimePicker for Interval */}
-          <div className="form-control w-full">
-            <TimePicker 
-              label="Select Start Offset Interval"
-              initialInterval={selectedInterval} 
-              onIntervalChange={(interval) => setSelectedInterval(interval)} 
-            />
-          </div>
-        </div>
-
-        {/* Schedule Button */}
-        <div className="mt-6">
-          <button 
-            className={`btn btn-primary w-full md:w-auto ${isScheduling ? 'loading' : ''}`}
-            onClick={handleScheduleCampaign}
-            disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
-          >
-            {isScheduling ? 'Scheduling...' : 'Schedule Campaign Run'}
-          </button>
         </div>
       </div>
 
@@ -801,7 +807,7 @@ interface FetchedLogItem {
   processed_at?: string | null; // Timestamps from DB can be string or null
   message?: string | null;      // Message content
   log_level?: string | null;    // Log level from DB, used to map to LogEntry['type']
-  data?: any;                   // Any additional data associated with the log
+  data?: Record<string, unknown>;                   // Any additional data associated with the log
 }
 
 export default EngineControlView;

@@ -1,37 +1,54 @@
 'use client';
 
-import { PlusCircle, Edit3, Trash2, ShieldAlert, Mail, Power, PowerOff, Upload } from 'lucide-react';
+import { PlusCircle, Edit3, Trash2, ShieldAlert, Mail, Upload } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
-import type { Sender } from '@/types/index';
+// We're defining our own EmailSender interface to match the actual structure used in this component
+// instead of using the imported Sender type which has a different structure
+
+// Define a local interface that matches the actual structure used in this component
+interface EmailSender {
+  id: number;
+  employee_name: string;
+  employee_email: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  photo_url?: string | null;
+}
 
 const SendersView: React.FC = () => {
   // State for the senders list and loading
-  const [senders, setSenders] = useState<Sender[]>([]);
+  const [senders, setSenders] = useState<EmailSender[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   // State for the add/edit modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSender, setEditingSender] = useState<Sender | null>(null);
-  const [senderFormData, setSenderFormData] = useState({ 
-    name: '', 
-    email: '' 
+  const [editingSender, setEditingSender] = useState<EmailSender | null>(null);
+  const [senderFormData, setSenderFormData] = useState<EmailSender>({
+    id: 0,
+    employee_name: '',
+    employee_email: '',
+    is_active: false,
+    created_at: '',
+    updated_at: '',
+    photo_url: null
   });
   const [modalError, setModalError] = useState<string | null>(null);
   
   // State for CSV upload
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [csvPreview, setCsvPreview] = useState<Array<{name: string, email: string, status: string}>>([]);
+  const [csvPreview, setCsvPreview] = useState<EmailSender[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Filter senders based on search term
   const filteredSenders = senders.filter(sender =>
-    sender.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sender.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    sender.employee_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    sender.employee_email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Fetch senders from the API
@@ -58,17 +75,14 @@ const SendersView: React.FC = () => {
       }
       
       // Ensure required fields exist
-      const validatedSenders = data.map(sender => ({
-        id: sender.id || '',
-        user_id: sender.user_id || '',
-        name: sender.name || '',
-        email: sender.email || '',
-        is_active: sender.is_active ?? true,
-        is_default: sender.is_default ?? false,
-        created_at: sender.created_at || new Date().toISOString(),
-        updated_at: sender.updated_at || new Date().toISOString(),
-        photo_url: sender.photo_url,
-        status_message: sender.status_message
+      const validatedSenders = data.map((item: Record<string, unknown>) => ({
+        id: Number(item.id || 0),
+        employee_name: String(item.sender_name || ''),
+        employee_email: String(item.sender_email || ''),
+        is_active: Boolean(item.is_active),
+        created_at: String(item.created_at || ''),
+        updated_at: String(item.updated_at || ''),
+        photo_url: item.photo_url as string | null
       }));
       
       console.log('Validated senders:', validatedSenders);
@@ -97,17 +111,29 @@ const SendersView: React.FC = () => {
   // Modal handlers
   const openModalToAdd = () => {
     setEditingSender(null);
-    setSenderFormData({ name: '', email: '' });
+    setSenderFormData({
+      id: 0,
+      employee_name: '',
+      employee_email: '',
+      is_active: false,
+      created_at: '',
+      updated_at: '',
+      photo_url: null
+    });
     setModalError(null);
     setIsModalOpen(true);
   };
 
-  const openModalToEdit = (sender: Sender) => {
+  const openModalToEdit = (sender: EmailSender) => {
     setEditingSender(sender);
-    setSenderFormData({ 
-      name: sender.name || '', 
-      email: sender.email || '' 
-    });
+    setSenderFormData(sender);
+    setModalError(null);
+    setIsModalOpen(true);
+  };
+
+  const renderSenderCard = (sender: EmailSender) => {
+    setEditingSender(sender);
+    setSenderFormData(sender);
     setModalError(null);
     setIsModalOpen(true);
   };
@@ -115,7 +141,15 @@ const SendersView: React.FC = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingSender(null);
-    setSenderFormData({ name: '', email: '' });
+    setSenderFormData({
+      id: 0,
+      employee_name: '',
+      employee_email: '',
+      is_active: false,
+      created_at: '',
+      updated_at: '',
+      photo_url: null
+    });
     setModalError(null);
   };
 
@@ -129,12 +163,12 @@ const SendersView: React.FC = () => {
     e.preventDefault();
     setModalError(null);
 
-    if (!senderFormData.name.trim() || !senderFormData.email.trim()) {
+    if (!senderFormData.employee_name.trim() || !senderFormData.employee_email.trim()) {
       setModalError('Both name and email are required.');
       return;
     }
     
-    if (!/\S+@\S+\.\S+/.test(senderFormData.email)) {
+    if (!/\S+@\S+\.\S+/.test(senderFormData.employee_email)) {
       setModalError('Please enter a valid email address.');
       return;
     }
@@ -156,13 +190,14 @@ const SendersView: React.FC = () => {
 
       await fetchSenders();
       closeModal();
-    } catch (err: any) {
-      setModalError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setModalError(errorMessage);
     }
   };
 
   // Sender action handlers
-  const handleDeleteSender = async (senderId: string) => {
+  const handleDeleteSender = async (senderId: number) => {
     if (!window.confirm('Are you sure you want to delete this email sender?')) {
       return;
     }
@@ -175,12 +210,13 @@ const SendersView: React.FC = () => {
         throw new Error(errorData.error || 'Failed to delete sender');
       }
       await fetchSenders();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete sender');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete sender';
+      setError(errorMessage);
     }
   };
 
-  const handleToggleSenderActiveStatus = async (sender: Sender) => {
+  const handleToggleSenderActiveStatus = async (sender: EmailSender) => {
     const newStatus = !sender.is_active;
     setError(null);
     
@@ -197,12 +233,19 @@ const SendersView: React.FC = () => {
       }
 
       await fetchSenders();
-    } catch (err: any) {
-      setError(err.message || 'Failed to update status');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update sender status';
+      setError(errorMessage);
     }
   };
 
   // CSV handlers
+  const handleCsvRowChange = (index: number, field: keyof EmailSender, value: string) => {
+    const newCsvPreview = [...csvPreview];
+    newCsvPreview[index][field] = value;
+    setCsvPreview(newCsvPreview);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -229,18 +272,23 @@ const SendersView: React.FC = () => {
           throw new Error('CSV must contain "Name" and "Email" columns');
         }
         
-        const preview = lines.slice(1).map(line => {
+        const preview: EmailSender[] = lines.slice(1).map(line => {
           const values = line.split(',');
           return {
-            name: values[nameIndex]?.trim() || '',
-            email: values[emailIndex]?.trim() || '',
-            status: 'Pending'
+            id: 0,
+            employee_name: values[nameIndex]?.trim() || '',
+            employee_email: values[emailIndex]?.trim() || '',
+            is_active: false,
+            created_at: '',
+            updated_at: '',
+            photo_url: ''
           };
         });
         
         setCsvPreview(preview);
-      } catch (err: any) {
-        setUploadError(err.message || 'Error parsing CSV file');
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to parse CSV file';
+        setUploadError(errorMessage);
         setCsvPreview([]);
       }
     };
@@ -263,15 +311,15 @@ const SendersView: React.FC = () => {
       const results = [];
       
       for (const row of csvPreview) {
-        if (!row.email) continue; // Skip rows without email
+        if (!row.employee_email) continue; // Skip rows without email
         
         try {
           const response = await fetch('/api/email-senders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name: row.name,
-              email: row.email,
+              employee_name: row.employee_name,
+              employee_email: row.employee_email,
               is_active: true
             }),
           });
@@ -281,12 +329,13 @@ const SendersView: React.FC = () => {
             throw new Error(errorData.error || 'Failed to add sender');
           }
           
-          results.push({ email: row.email, success: true });
-        } catch (err: any) {
+          results.push({ sender_email: row.employee_email, success: true });
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : 'Failed to add sender';
           results.push({ 
-            email: row.email, 
+            sender_email: row.employee_email, 
             success: false, 
-            error: err.message || 'Failed to add sender' 
+            error: errorMessage 
           });
         }
       }
@@ -298,7 +347,7 @@ const SendersView: React.FC = () => {
       if (errorCount > 0) {
         const errorMessages = results
           .filter(r => !r.success)
-          .map(r => `- ${r.email}: ${r.error}`)
+          .map(r => `- ${r.sender_email}: ${r.error}`)
           .join('\n');
         
         setUploadError(`Failed to import ${errorCount} sender(s).\n${errorMessages}`);
@@ -405,8 +454,8 @@ const SendersView: React.FC = () => {
               <tbody>
                 {filteredSenders.map((sender) => (
                   <tr key={sender.id} className="hover">
-                    <td className="font-medium">{sender.name}</td>
-                    <td>{sender.email}</td>
+                    <td className="font-medium">{sender.employee_name}</td>
+                    <td>{sender.employee_email}</td>
                     <td className="text-center">
                       <button
                         className={`btn btn-xs ${sender.is_active ? 'btn-success' : 'btn-error'}`}

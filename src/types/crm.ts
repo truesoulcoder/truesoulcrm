@@ -33,3 +33,16 @@ export interface CrmLead {
   lot_size_sqft?: string | null;
   assessed_total?: number | null;
 }
+
+export interface Sender {
+  id: string | number;
+  user_id?: string;
+  name: string;
+  email: string;
+  is_active: boolean;
+  is_default?: boolean;
+  created_at: string;
+  updated_at: string;
+  photo_url?: string | null;
+  status_message?: string | null;
+}

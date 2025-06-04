@@ -1,6 +1,6 @@
 // Shared type definitions for the test email workflow
 import { createAdminServerClient } from '@/lib/supabase/server'; // For EmailDispatchFullParams
-import { FineCutLead } from '@/types/supabase'; // For LeadData
+import { FineCutLead } from '@/types/leads'; // For LeadData
 
 export interface RequestPayload {
   marketRegionNormalizedName: string;
