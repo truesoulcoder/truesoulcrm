@@ -39,17 +39,6 @@ interface SenderMetrics extends MetricTotals {
   replyRate: number;
 }
 
-interface ApiResponse {
-  success: boolean;
-  data?: {
-    totals: MetricTotals;
-    rates: MetricRates;
-    bySender: SenderMetrics[];
-    timeSeries: any[];
-  };
-  error?: string;
-}
-
 class EmailMetricsError extends Error {
   status: number;
 
@@ -148,7 +137,7 @@ const processSenderMetrics = (metrics: EmailMetric[]): SenderMetrics[] => {
   });
 };
 
-const getDateRange = (timeRange: string): Date => {
+const getDateRange = (timeRange: TimeRange): Date => {
   const date = new Date();
   const days = timeRange === '24h' ? 1 : timeRange === '30d' ? 30 : 7;
   date.setDate(date.getDate() - days);
@@ -161,18 +150,8 @@ export async function GET(request: NextRequest) {
   const timeRange = searchParams.get('timeRange') || '7d';
   
   try {
-    const startDate = getDateRange(timeRange as string);
+    const startDate = getDateRange(timeRange as TimeRange);
     const supabase = await createAdminServerClient();
-
-    // Define types for our metrics
-    type SenderMetric = {
-      sender_email_used: string | null;
-      sender_name: string | null;
-      email_status: string | null;
-      count: number;
-    };
-
-    type TimeSeriesPoint = any; // Replace with actual type if known
 
     try {
       // Get the Supabase client instance
@@ -180,10 +159,12 @@ export async function GET(request: NextRequest) {
       
       // Fetch metrics by sender and status
       const { data: metricsData, error: metricsError } = await client
-        .from('eli5_email_log')
-        .select('sender_email_used, sender_name, email_status, count(*)')
-        .gte('created_at', startDate.toISOString())
-        .group('sender_email_used, sender_name, email_status');
+        .from('engine_log')
+        .select('sender_email_used, sender_name, email_status, count(*)', { 
+          count: 'exact',
+          head: false 
+        })
+        .gte('created_at', startDate.toISOString());
 
       if (metricsError) {
         throw new EmailMetricsError(`Error fetching email metrics: ${metricsError.message}`, 500);
@@ -200,10 +181,35 @@ export async function GET(request: NextRequest) {
       }
 
       // Process the metrics data
-      const metrics = metricsData as EmailMetric[];
-      const totals = calculateTotals(metrics);
+      if (!metricsData || !Array.isArray(metricsData)) {
+        throw new EmailMetricsError('Invalid metrics data received', 500);
+      }
+            
+      // Update the filter to handle both EmailMetric and ParserError types
+      const metrics = metricsData.filter((item: unknown): item is EmailMetric => {
+        if (typeof item !== 'object' || item === null) return false;
+        if ('error' in item) return false; // Skip ParserError objects
+        
+        const metric = item as Record<string, unknown>;
+        return (
+          typeof metric.sender_email_used === 'string' &&
+          typeof metric.sender_name === 'string' &&
+          typeof metric.email_status === 'string' &&
+          typeof metric.count === 'number'
+        );
+      });
+      
+      if (metrics.length === 0) {
+        throw new EmailMetricsError('No valid email metrics found', 404);
+      }
+      const validMetrics = metrics.filter(metric => !('error' in metric));
+      if (validMetrics.length === 0) {
+        throw new EmailMetricsError('No valid email metrics found', 404);
+      }
+      
+      const totals = calculateTotals(validMetrics);
       const rates = calculateRates(totals);
-      const bySender = processSenderMetrics(metrics);
+      const bySender = processSenderMetrics(validMetrics);
 
       // Return the processed data
       return NextResponse.json({

@@ -2,7 +2,6 @@
 
 import { PlayCircle, StopCircle, Mail, AlertTriangle, Info, CheckCircle, RefreshCw, MapPin } from 'lucide-react';
 import React, { useState, useEffect, useCallback, useRef, JSX } from 'react';
-import { RealtimeConsole } from '@/components/RealtimeConsole';
 import { supabase } from '@/lib/supabase/client';
 import { Database } from '@/types/supabase';
 import TimePicker from '@/components/ui/TimePicker'; // Added import for TimePicker
@@ -90,6 +89,16 @@ const EngineControlView: React.FC = (): JSX.Element => {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
   const [selectedInterval, setSelectedInterval] = useState<string>('01:00:00'); // Default to 1 hour, e.g.
   const [isScheduling, setIsScheduling] = useState<boolean>(false);
+
+  const [activeConsoleTab, setActiveConsoleTab] = useState<'system' | 'campaign'>('system');
+
+  const filteredLogs = consoleLogs.filter(log => {
+    if (activeConsoleTab === 'system') {
+      return log.type !== 'info' || log.message.includes('system') || log.message.includes('System');
+    } else {
+      return log.message.includes('Campaign') || log.message.includes('campaign') || log.message.includes('Job');
+    }
+  });
 
   // Fetch campaigns for dropdown
   useEffect(() => {
@@ -746,7 +755,58 @@ const EngineControlView: React.FC = (): JSX.Element => {
           <span>{error}</span>
         </div>
       )}
-      <RealtimeConsole />
+      {/* Realtime Console Card */}
+      <div className="card bg-base-200 shadow-lg mb-6">
+        <div className="card-body p-0">
+          <div className="tabs tabs-boxed bg-base-200 p-2">
+            <button 
+              className={`tab ${activeConsoleTab === 'system' ? 'tab-active' : ''}`}
+              onClick={() => setActiveConsoleTab('system')}
+            >
+              System Logs
+            </button>
+            <button 
+              className={`tab ${activeConsoleTab === 'campaign' ? 'tab-active' : ''}`}
+              onClick={() => setActiveConsoleTab('campaign')}
+            >
+              Campaign Jobs
+            </button>
+          </div>
+          
+          <div className="p-4 h-96 overflow-y-auto bg-base-100">
+            {filteredLogs.length === 0 ? (
+              <p className="text-center text-base-content/50">No {activeConsoleTab} logs available</p>
+            ) : (
+              <div className="space-y-2">
+                {filteredLogs.map((log) => (
+                  <div 
+                    key={log.id}
+                    className={`p-2 rounded ${
+                      log.type === 'error' 
+                        ? 'bg-error/10 text-error' 
+                        : log.type === 'warning' 
+                        ? 'bg-warning/10 text-warning'
+                        : log.type === 'success'
+                        ? 'bg-success/10 text-success'
+                        : 'bg-base-200'
+                    }`}
+                  >
+                    <div className="flex justify-between text-xs opacity-70 mb-1">
+                      <span>{new Date(log.timestamp).toLocaleString()}</span>
+                      <span className="font-mono">ID: {log.id}</span>
+                    </div>
+                    <div className="font-mono text-sm break-words">
+                      {log.message}
+                    </div>
+                  </div>
+                ))}
+                <div ref={consoleEndRef} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="card bordered shadow-lg bg-base-100 mb-6">
         <div className="card-body p-4 md:p-6"> 
           <div className="mb-6"> 

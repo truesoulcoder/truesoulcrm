@@ -2,11 +2,11 @@
 import { Environment as NunjucksEnvironment } from 'nunjucks';
 
 import { isValidEmail as validateEmailFromUtils } from '@/app/api/engine/_utils/_utils';
-import { createAdminServerClient } from '@/lib/supabase/server';
 import { logSystemEvent } from '@/services/logService';
 import { FineCutLead } from '@/types/leads';
 
 import { EngineLogEntry } from './_types'; // Assuming _types.ts is in the same directory
+import { SupabaseClient } from '@supabase/supabase-js'; // Import SupabaseClient type
 
 export function extractSubjectAndCleanHtml(
   renderedHtmlWithComment: string,
@@ -64,14 +64,15 @@ export function validateLeadFields( // Renamed from _validateLeadFields
 }
 
 export async function logToSupabaseTable( // Renamed from logToSupabase for clarity
-  supabaseClientPromise: ReturnType<typeof createAdminServerClient>, // Renamed for clarity, this is a Promise
+  supabaseClient: SupabaseClient, // Changed from Promise
   logData: Partial<EngineLogEntry>,
   leadIdForLog?: string | number | null, // Made optional and clearer
   campaignIdForLog?: string | null // Made optional and clearer
 ): Promise<void> {
   try {
-    const client = await supabaseClientPromise; // Await the promise to get the client instance
-    const { error } = await client.from('engine_log').insert([logData]);
+    const { error } = await supabaseClient
+      .from('engine_log')
+      .insert([logData]);
     if (error) {
       console.error('Error logging to Supabase in logToSupabaseTable:', error.message);
       await logSystemEvent({

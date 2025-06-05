@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime, timezone # Added timezone
+from datetime import datetime, timezone, timedelta # Added timezone and timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from google.oauth2 import service_account
@@ -10,6 +10,9 @@ import traceback # For more detailed error logging
 import logging # Added
 import threading # Added
 import sys # Added for sys.stderr
+import base64 # Added for base64 decoding
+import re # Added for regular expressions
+import time # Added for retry delay
 
 # --- SupabaseLogHandler Class Definition ---
 class SupabaseLogHandler(logging.Handler):
@@ -55,12 +58,19 @@ class SupabaseLogHandler(logging.Handler):
         """Helper method to send log entry, designed to be run in a thread."""
         try:
             if self.supabase_client:
-                self.supabase_client.table(self.supabase_table_name).insert(log_entry).execute()
+                # Create client with timeout
+                client = self.supabase_client
+                client.postgrest.timeout = 10  # 10 second timeout
+                
+                result = client.table(self.supabase_table_name).insert(log_entry).execute()
+                if not result.data:
+                    raise Exception("Empty response from Supabase")
             else:
                 print(f"Supabase client not available in _send_to_supabase. Log entry not sent: {log_entry}", file=sys.stderr)
         except Exception as e:
-            # This print will go to stderr from the thread
-            print(f"Supabase logging thread error in _send_to_supabase: {e}\\nLog entry: {log_entry}", file=sys.stderr)
+            print(f"Supabase logging error: {str(e)}", file=sys.stderr)
+
+
 # --- End SupabaseLogHandler Class Definition ---
 
 
@@ -82,7 +92,8 @@ supabase_client: Client | None = None
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
     supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 else:
-    gmail_monitor_logger.critical("Supabase URL or Service Key not found in environment variables for gmail_event_monitor.")
+    logger = logging.getLogger('gmail_event_monitor')
+    logger.critical("Supabase URL or Service Key not found in environment variables for gmail_event_monitor.")
 
 # Parse Google Credentials once when module is loaded
 google_creds_dict_global = None
@@ -92,9 +103,11 @@ if GOOGLE_SA_KEY_STRING:
         if google_creds_dict_global and 'private_key' in google_creds_dict_global:
             google_creds_dict_global['private_key'] = google_creds_dict_global['private_key'].replace('\\n', '\n')
     except json.JSONDecodeError:
-        gmail_monitor_logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON in gmail_event_monitor.")
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON in gmail_event_monitor.")
 else:
-    gmail_monitor_logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY not found in environment variables for gmail_event_monitor.")
+    logger = logging.getLogger('gmail_event_monitor')
+    logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY not found in environment variables for gmail_event_monitor.")
 
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -152,7 +165,8 @@ else:
 def get_gmail_service(user_email_to_impersonate):
     """Authenticates to Gmail API impersonating the given user."""
     if not google_creds_dict_global:
-        gmail_monitor_logger.error(f"Google SA Key not loaded. Cannot create Gmail service for {user_email_to_impersonate}.")
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.error(f"Google SA Key not loaded. Cannot create Gmail service for {user_email_to_impersonate}.")
         return None
     try:
         creds = service_account.Credentials.from_service_account_info(
@@ -164,136 +178,327 @@ def get_gmail_service(user_email_to_impersonate):
         service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
         return service
     except Exception as e:
-        gmail_monitor_logger.error(f"Error creating Gmail service for {user_email_to_impersonate}: {e}", exc_info=True)
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.error(f"Error creating Gmail service for {user_email_to_impersonate}: {e}", exc_info=True)
         return None
 
-def _parse_message_id_from_header_value(header_value: str) -> str | None:
-    """Extracts the first Message-ID from a header string like <ID> or ID."""
-    if not header_value:
-        return None
-    # Remove angle brackets if present
-    cleaned_value = header_value.strip().lstrip('<').rstrip('>')
-    # Sometimes there are multiple IDs in References, take the first one for simplicity here
-    # A more robust parser might consider all of them.
-    return cleaned_value.split()[0] if cleaned_value else None
-
-
-def process_message_for_engagement(message_id, gmail_service, sender_email_used, sender_name_used, db_client: Client):
-    """
-    Fetches a single message, parses it for replies/bounces,
-    and logs to email_engagement_events.
-    """
-    if not db_client:
-        gmail_monitor_logger.error("Supabase client not available in process_message_for_engagement.")
-        return
-
+def get_message_body(message):
+    """Extracts plain text body from Gmail message"""
     try:
-        # Fetch only metadata initially to quickly check headers
-        msg = gmail_service.users().messages().get(userId='me', id=message_id, format='metadata').execute()
-        headers = msg.get('payload', {}).get('headers', [])
-        
-        original_campaign_message_id = None
-        event_type = None
-        # Store the raw message metadata or parts of it
-        event_details = {"raw_event_data": {"id": msg.get("id"), "threadId": msg.get("threadId"), "labelIds": msg.get("labelIds")}}
-
-        # 1. Check for Reply
-        in_reply_to_header_val = next((h['value'] for h in headers if h['name'].lower() == 'in-reply-to'), None)
-        references_header_val = next((h['value'] for h in headers if h['name'].lower() == 'references'), None)
-        
-        potential_ref_ids = []
-        parsed_in_reply_to = _parse_message_id_from_header_value(in_reply_to_header_val)
-        if parsed_in_reply_to:
-            potential_ref_ids.append(parsed_in_reply_to)
-        
-        if references_header_val:
-            # References can have multiple IDs, often space-separated. Check each.
-            for ref_id_with_brackets in references_header_val.split():
-                parsed_ref = _parse_message_id_from_header_value(ref_id_with_brackets)
-                if parsed_ref and parsed_ref not in potential_ref_ids: # Avoid duplicates
-                    potential_ref_ids.append(parsed_ref)
-        
-        if potential_ref_ids:
-            for ref_id in potential_ref_ids:
-                # Check if this ref_id matches any email_message_id in campaign_jobs
-                # We use campaign_jobs as the primary source for linking back.
-                job_res = db_client.table("campaign_jobs").select("id, campaign_id, lead_id, contact_email").eq("email_message_id", ref_id).maybe_single().execute()
-                if job_res.data:
-                    original_campaign_message_id = ref_id
-                    event_type = "REPLIED"
-                    event_details.update({
-                        "campaign_job_id": job_res.data["id"],
-                        "campaign_id": job_res.data["campaign_id"],
-                        "lead_id": job_res.data["lead_id"],
-                        "contact_email": job_res.data["contact_email"], # This is the recipient of original email
-                        "reply_subject": next((h['value'] for h in headers if h['name'].lower() == 'subject'), None),
-                    })
-                    # To get reply_body_preview, we'd need to fetch format='full' or 'raw' and parse
-                    break # Found a match for reply
-
-        # 2. Check for Bounce (if not already identified as a reply)
-        # This is a simplified bounce check. Real bounce processing is complex.
-        if not event_type:
-            from_header = next((h['value'] for h in headers if h['name'].lower() == 'from'), "").lower()
-            subject_header = next((h['value'] for h in headers if h['name'].lower() == 'subject'), "").lower()
-            
-            is_bounce_candidate = False
-            if "mailer-daemon@" in from_header or "postmaster@" in from_header:
-                is_bounce_candidate = True
-            if "delivery status notification" in subject_header or "undeliverable" in subject_header or "delivery failure" in subject_header:
-                is_bounce_candidate = True
-            
-            if is_bounce_candidate:
-                # For bounces, we ideally need to parse the body to find the original Message-ID.
-                # This is a placeholder. A full implementation would fetch the full message and parse it.
-                # For now, we'll log a generic bounce if we can't link it, or try to find an ID.
-                # This part needs significant enhancement for production.
-                # Let's assume for now we can't reliably get original_campaign_message_id from a simple metadata bounce check.
-                gmail_monitor_logger.info(f"Potential bounce detected for message ID {message_id} in {sender_email_used}'s inbox. Subject: {subject_header}. From: {from_header}. Further parsing needed for correlation.")
-                # To actually log this as a 'BOUNCED' event, we MUST find the original_campaign_message_id.
-                # This would involve fetching the full email and parsing its content.
-                # Example: original_campaign_message_id = parse_original_id_from_bounce_content(gmail_service, message_id)
-                # If found: event_type = "BOUNCED", add bounce_reason, etc.
-
-        # 3. Log to email_engagement_events if an event was identified and correlated
-        if event_type and original_campaign_message_id:
-            # Convert internalDate (milliseconds since epoch) to ISO 8601 timestamp
-            event_ts_raw = msg.get('internalDate')
-            event_ts_iso = datetime.now(timezone.utc).isoformat() # Fallback
-            if event_ts_raw:
-                try:
-                    event_ts_iso = datetime.fromtimestamp(int(event_ts_raw)/1000, tz=timezone.utc).isoformat()
-                except ValueError:
-                    gmail_monitor_logger.warning(f"Could not parse internalDate {event_ts_raw}")
-
-            db_payload = {
-                "email_message_id": original_campaign_message_id,
-                "campaign_id": event_details.get("campaign_id"),
-                "campaign_job_id": event_details.get("campaign_job_id"),
-                "lead_id": event_details.get("lead_id"),
-                "contact_email": event_details.get("contact_email"),
-                "sender_email_used": sender_email_used,
-                "sender_name": sender_name_used,
-                "event_type": event_type,
-                "event_timestamp": event_ts_iso,
-                "reply_subject": event_details.get("reply_subject"),
-                # "reply_body_preview": ..., # Requires full message fetch
-                # "bounce_reason": ..., # Requires bounce parsing
-                # "bounce_type": ..., # Requires bounce parsing
-                "raw_event_data": event_details["raw_event_data"] # Store basic metadata
-            }
-            try:
-                db_client.table("email_engagement_events").insert(db_payload).execute()
-                gmail_monitor_logger.info(f"Logged {event_type} for original msg: {original_campaign_message_id} (new msg: {message_id}) from sender: {sender_email_used}")
-            except Exception as db_e:
-                gmail_monitor_logger.error(f"DB Error logging engagement for {original_campaign_message_id}: {db_e}", exc_info=True)
-        
-    except HttpError as error:
-        gmail_monitor_logger.error(f"Gmail API error processing message {message_id} for {sender_email_used}: {error.resp.status} - {error._get_reason()}")
-        if error.resp.status == 401 or error.resp.status == 403:
-            gmail_monitor_logger.warning("This might be a token or permission issue.")
+        parts = message.get('payload', {}).get('parts', [])
+        for part in parts:
+            if part.get('mimeType') == 'text/plain':
+                body_data = part.get('body', {}).get('data', '')
+                if body_data:
+                    return base64.urlsafe_b64decode(body_data).decode('utf-8')
+        return None
     except Exception as e:
-        gmail_monitor_logger.error(f"General error processing message {message_id} for {sender_email_used}: {e}", exc_info=True)
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.warning(f"Error parsing message body: {str(e)}")
+        return None
+
+def _parse_message_id_from_header_value(header_value: str) -> list[str]:
+    """Extracts all Message-IDs from a header string."""
+    if not header_value:
+        return []
+        
+    # Extract all message IDs (with or without angle brackets)
+    message_ids = []
+    for part in header_value.split():
+        cleaned = part.strip().lstrip('<').rstrip('>')
+        if cleaned:
+            message_ids.append(cleaned)
+            
+    return message_ids
+
+
+def is_bounce(message):
+    """Enhanced bounce detection with comprehensive SMTP code checking"""
+    try:
+        headers = {h['name'].lower(): h['value'] for h in message['payload']['headers']}
+        body = get_message_body(message)
+        
+        # Return early if no body content
+        if body is None:
+            return False
+        
+        body = body.lower()
+        
+        # SMTP error codes (4xx and 5xx)
+        SMTP_ERROR_CODES = [
+            '421', '422', '431', '432', '441', '442', '446', '447', '449', '450',
+            '451', '452', '453', '454', '455', '458', '459', '471', '500', '501',
+            '502', '503', '504', '510', '511', '512', '513', '515', '517', '521',
+            '522', '523', '530', '531', '533', '534', '535', '538', '540', '541',
+            '542', '543', '546', '547', '550', '551', '552', '553', '554', '555', '556'
+        ]
+        
+        # Common bounce phrases
+        BOUNCE_PHRASES = [
+            'mailbox unavailable', 'this mailbox is disabled',
+            'requested action not taken', 'communication failure occurred',
+            'address not found', 'user does not exist',
+            'recipient rejected', 'unable to receive mail'
+        ]
+        
+        # 1. Check subject line
+        try:
+            subject = headers.get('Subject', '').lower()
+            from_ = headers.get('From', '').lower()
+        except Exception as e:
+            logger = logging.getLogger('gmail_event_monitor')
+            logger.error(f"Error processing email headers: {e}", exc_info=True)
+            return False
+        
+        if any(phrase in subject for phrase in BOUNCE_PHRASES + ['undelivered', 'returned', 'failure']):
+            return True
+        
+        # 2. Check body content
+        if body:
+            # Check for SMTP error codes
+            if any(f' {code} ' in body for code in SMTP_ERROR_CODES):
+                return True
+            
+            # Check for provider patterns and bounce phrases
+            if any(phrase in body for phrase in PROVIDER_PATTERNS + BOUNCE_PHRASES):
+                return True
+            
+        return False
+        
+    except Exception as e:
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.error(f"Error checking for bounce: {str(e)}", exc_info=True)
+        return False
+
+
+def extract_original_id_from_bounce(message):
+    """Try to find original Message-ID from bounce content"""
+    try:
+        body = get_message_body(message)
+        if body:
+            # Look for common bounce patterns
+            patterns = [
+                "Original-Message-ID: <(.*?)>",
+                "Message-ID: <(.*?)>",
+                "OriginalMessageID.*?<(.*?)>"
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, body, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def process_message_for_engagement(message_id, gmail_service, sender_email_used, sender_name_used, db_client):
+    gmail_monitor_logger.debug(f"Processing message {message_id}")
+    try:
+        # 1. Get message metadata
+        try:
+            msg = gmail_service.users().messages().get(
+                userId='me', 
+                id=message_id, 
+                format='metadata'
+            ).execute()
+            gmail_monitor_logger.debug(f"Message headers: {msg.get('payload', {}).get('headers', [])}")
+        except Exception as e:
+            gmail_monitor_logger.error(f"Failed to fetch message {message_id}", exc_info=True)
+            return
+
+        # 2. Check for reply
+        is_reply = False
+        try:
+            is_reply = is_reply_message(msg)
+            gmail_monitor_logger.debug(f"Reply check result: {is_reply}")
+        except Exception as e:
+            gmail_monitor_logger.error(f"Error checking reply status for {message_id}", exc_info=True)
+
+        # 3. Check for bounce
+        is_bounce_msg = False
+        try:
+            is_bounce_msg = is_bounce(msg)
+            gmail_monitor_logger.debug(f"Bounce check result: {is_bounce_msg}")
+        except Exception as e:
+            gmail_monitor_logger.error(f"Error checking bounce status for {message_id}", exc_info=True)
+
+        # Process engagement events
+        event_details = {
+            'message_id': message_id,
+            'sender_email': sender_email_used,
+            'sender_name': sender_name_used,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+
+        # Handle reply detection
+        if is_reply:
+            try:
+                headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
+                in_reply_to_header_val = headers.get('in-reply-to')
+                references_header_val = headers.get('references')
+                
+                potential_ref_ids = []
+                
+                # Parse message IDs from headers
+                parsed_in_reply_to = _parse_message_id_from_header_value(in_reply_to_header_val)
+                if parsed_in_reply_to:
+                    potential_ref_ids.extend(parsed_in_reply_to)
+                
+                if references_header_val:
+                    for ref_id_with_brackets in references_header_val.split():
+                        parsed_ref = _parse_message_id_from_header_value(ref_id_with_brackets)
+                        if parsed_ref and any(ref not in potential_ref_ids for ref in parsed_ref):
+                            potential_ref_ids.extend(parsed_ref)
+                
+                # Check each potential reference ID
+                for ref_id in potential_ref_ids:
+                    try:
+                        job_res = execute_with_retry(
+                            lambda: db_client.table("campaign_jobs")
+                                .select("id, campaign_id, lead_id, contact_email")
+                                .eq("email_message_id", ref_id)
+                                .maybe_single()
+                                .execute(),
+                            max_retries=3,
+                            initial_delay=1
+                        )
+                        
+                        if not job_res or not job_res.data:
+                            gmail_monitor_logger.debug(f"No campaign job found for message ID: {ref_id}")
+                            continue
+                            
+                        # Process valid reply
+                        event_details.update({
+                            "campaign_job_id": job_res.data["id"],
+                            "campaign_id": job_res.data["campaign_id"],
+                            "lead_id": job_res.data["lead_id"],
+                            "contact_email": job_res.data["contact_email"],
+                            "event_type": "REPLIED",
+                            "reply_subject": headers.get('subject')
+                        })
+                        
+                        gmail_monitor_logger.info(f"Detected REPLY from {event_details['contact_email']} to campaign {event_details['campaign_id']}")
+                        break
+                        
+                    except Exception as e:
+                        gmail_monitor_logger.error(f"Error processing reply reference {ref_id}", exc_info=True)
+                        continue
+
+            except Exception as e:
+                gmail_monitor_logger.error(f"Error processing reply for {message_id}", exc_info=True)
+
+        # Handle bounce detection
+        elif is_bounce_msg:
+            try:
+                original_id = extract_original_id_from_bounce(msg) or message_id
+                event_details.update({
+                    "event_type": "BOUNCED",
+                    "original_message_id": original_id
+                })
+                
+                gmail_monitor_logger.warning(f"Detected BOUNCE for message {original_id}")
+                
+            except Exception as e:
+                gmail_monitor_logger.error(f"Error processing bounce for {message_id}", exc_info=True)
+
+        # Log the engagement event if detected
+        if 'event_type' in event_details:
+            try:
+                gmail_monitor_logger.debug(f"Attempting to insert engagement event: {event_details}")
+                result = db_client.table("email_engagement_events").insert(event_details).execute()
+                gmail_monitor_logger.info(f"Logged engagement event: {event_details['event_type']} for {message_id}")
+                gmail_monitor_logger.debug(f"Supabase insert result: {result}")
+            except Exception as e:
+                gmail_monitor_logger.error(f"Failed to log engagement event for {message_id}", exc_info=True)
+                gmail_monitor_logger.debug(f"Failed event details: {event_details}")
+        else:
+            gmail_monitor_logger.debug(f"No engagement event detected for message {message_id}")
+            gmail_monitor_logger.debug(f"is_reply: {is_reply}, is_bounce: {is_bounce_msg}")
+
+    except Exception as e:
+        gmail_monitor_logger.error(f"Unexpected error processing message {message_id}", exc_info=True)
+
+
+def execute_with_retry(query_func, max_retries=3, initial_delay=1):
+    """Execute a Supabase query with basic retry logic."""
+    for attempt in range(max_retries):
+        try:
+            return query_func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            delay = initial_delay * (2 ** attempt)  # Simple exponential backoff
+            gmail_monitor_logger.warning(f"Query failed, retrying in {delay}s: {str(e)}")
+            time.sleep(delay)
+
+
+def test_supabase_connection(db_client):
+    """Test Supabase connection before processing messages."""
+    try:
+        # Test query against a table that should always exist
+        result = db_client.from_('senders').select('*').limit(1).execute()
+        if not result.data:
+            gmail_monitor_logger.warning("Supabase connection test returned empty data - check if senders table exists")
+            return True  # Still return True as connection succeeded
+        gmail_monitor_logger.info("Supabase connection test successful")
+        return True
+    except Exception as e:
+        gmail_monitor_logger.error(f"Supabase connection test failed: {str(e)}", exc_info=True)
+        return False
+
+
+def process_historical_messages(gmail_service, sender_email, sender_name, db_client, days_back=1, batch_size=100):
+    try:
+        if not test_supabase_connection(db_client):
+            return
+            
+        query = f"after:{datetime.now(timezone.utc).date() - timedelta(days=days_back)} before:{datetime.now(timezone.utc).date() + timedelta(days=1)}"
+        
+        # Get all messages
+        result = gmail_service.users().messages().list(
+            userId='me',
+            q=query,
+            maxResults=500
+        ).execute()
+        
+        messages = result.get('messages', [])
+        total_messages = len(messages)
+        
+        if not messages:
+            gmail_monitor_logger.info(f"No messages found for {sender_email} in the last {days_back} days")
+            return
+            
+        gmail_monitor_logger.info(f"Processing {total_messages} historical messages for {sender_email}")
+        
+        processed = 0
+        batch_count = 0
+        
+        while processed < total_messages:
+            batch = messages[processed:processed+batch_size]
+            batch_count += 1
+            
+            for i, msg in enumerate(batch):
+                try:
+                    process_message_for_engagement(
+                        msg['id'], 
+                        gmail_service, 
+                        sender_email, 
+                        sender_name, 
+                        db_client
+                    )
+                    
+                    # Log every 10 messages
+                    if (i+1) % 10 == 0:
+                        gmail_monitor_logger.info(f"Processed {i+1} messages in current batch ({processed + i + 1}/{total_messages} total)")
+                        
+                except Exception as e:
+                    gmail_monitor_logger.error(f"Error processing message {msg['id']}", exc_info=True)
+                
+            processed += len(batch)
+            gmail_monitor_logger.info(f"Processed batch of {len(batch)} messages (total: {processed})")
+            
+    except Exception as e:
+        gmail_monitor_logger.error("Error in historical message processing", exc_info=True)
 
 
 def monitor_all_active_senders():
@@ -308,15 +513,18 @@ def monitor_all_active_senders():
         print("Google SA Key not loaded. Exiting gmail_event_monitor.")
         return
 
-    gmail_monitor_logger.info(f"Starting Gmail inbox monitoring...")
+    logger = logging.getLogger('gmail_event_monitor')
+    logger.info(f"Starting Gmail inbox monitoring...")
     try:
         senders_res = supabase_client.table("senders").select("id, sender_name, sender_email, last_checked_history_id").eq("is_active", True).execute()
     except Exception as e:
-        gmail_monitor_logger.error(f"Error fetching active senders: {e}", exc_info=True)
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.error(f"Error fetching active senders: {e}", exc_info=True)
         return
 
     if not senders_res.data:
-        gmail_monitor_logger.info("No active senders found to monitor.")
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.info("No active senders found to monitor.")
         return
 
     for sender in senders_res.data:
@@ -326,10 +534,12 @@ def monitor_all_active_senders():
         # Ensure last_history_id is a string if not None
         last_history_id = str(sender["last_checked_history_id"]) if sender.get("last_checked_history_id") else None
 
-        gmail_monitor_logger.info(f"Checking inbox for sender: {sender_email} (Last History ID: {last_history_id})...")
+        logger = logging.getLogger('gmail_event_monitor')
+        logger.info(f"Checking inbox for sender: {sender_email} (Last History ID: {last_history_id})...")
         gmail_service = get_gmail_service(sender_email)
         if not gmail_service:
-            gmail_monitor_logger.warning(f"Skipping sender {sender_email} due to Gmail service creation failure.")
+            logger = logging.getLogger('gmail_event_monitor')
+            logger.warning(f"Skipping sender {sender_email} due to Gmail service creation failure.")
             continue
 
         try:
@@ -339,15 +549,18 @@ def monitor_all_active_senders():
                 profile = gmail_service.users().getProfile(userId='me').execute()
                 current_sender_history_id = profile.get('historyId')
                 if current_sender_history_id:
-                    gmail_monitor_logger.info(f"First-time check for {sender_email}. Setting initial history ID to {current_sender_history_id}. Subsequent checks will process newer mail.")
+                    logger = logging.getLogger('gmail_event_monitor')
+                    logger.info(f"First-time check for {sender_email}. Setting initial history ID to {current_sender_history_id}. Subsequent checks will process newer mail.")
                     try:
                         supabase_client.table("senders").update({"last_checked_history_id": str(current_sender_history_id)}).eq("id", sender_id).execute()
                         last_history_id = str(current_sender_history_id) # Use this for the current run (should yield no new messages)
                     except Exception as db_e:
-                        gmail_monitor_logger.error(f"DB Error setting initial history_id for {sender_email}: {db_e}", exc_info=True)
+                        logger = logging.getLogger('gmail_event_monitor')
+                        logger.error(f"DB Error setting initial history_id for {sender_email}: {db_e}", exc_info=True)
                         continue # Skip this sender if we can't set initial history
                 else:
-                    gmail_monitor_logger.warning(f"Could not retrieve current historyId for {sender_email}. Skipping.")
+                    logger = logging.getLogger('gmail_event_monitor')
+                    logger.warning(f"Could not retrieve current historyId for {sender_email}. Skipping.")
                     continue
             
             # Now, last_history_id should be set.
@@ -388,34 +601,102 @@ def monitor_all_active_senders():
                     if current_page_history_id and (not last_history_id or int(current_page_history_id) > int(last_history_id)):
                         try:
                             supabase_client.table("senders").update({"last_checked_history_id": str(current_page_history_id)}).eq("id", sender_id).execute()
-                            gmail_monitor_logger.info(f"Updated last_checked_history_id for {sender_email} to {current_page_history_id}")
+                            logger = logging.getLogger('gmail_event_monitor')
+                            logger.info(f"Updated last_checked_history_id for {sender_email} to {current_page_history_id}")
                             last_history_id = str(current_page_history_id) # For internal tracking if multiple pages
                         except Exception as db_e:
-                            gmail_monitor_logger.error(f"DB Error updating history_id for {sender_email} after processing: {db_e}", exc_info=True)
+                            logger = logging.getLogger('gmail_event_monitor')
+                            logger.error(f"DB Error updating history_id for {sender_email} after processing: {db_e}", exc_info=True)
                     break # Exit pagination loop
             
             if not all_new_message_ids_this_sender:
-                gmail_monitor_logger.info(f"No new messages for {sender_email} since history ID {last_history_id}.")
+                logger = logging.getLogger('gmail_event_monitor')
+                logger.info(f"No new messages for {sender_email} since history ID {last_history_id}.")
             else:
-                gmail_monitor_logger.info(f"Found {len(all_new_message_ids_this_sender)} new message candidate(s) for {sender_email}. Processing...")
+                logger = logging.getLogger('gmail_event_monitor')
+                logger.info(f"Found {len(all_new_message_ids_this_sender)} new message candidate(s) for {sender_email}. Processing...")
                 for msg_id in all_new_message_ids_this_sender:
-                    process_message_for_engagement(msg_id, gmail_service, sender_email, sender_name, supabase_client)
+                    process_message_for_engagement(
+                        msg_id, 
+                        gmail_service, 
+                        sender_email, 
+                        sender_name, 
+                        supabase_client
+                    )
         except HttpError as error:
-            gmail_monitor_logger.error(f"Gmail API error during history list for sender {sender_email}: {error.resp.status} - {error._get_reason()}", exc_info=True)
+            logger = logging.getLogger('gmail_event_monitor')
+            logger.error(f"Gmail API error during history list for sender {sender_email}: {error.resp.status} - {error._get_reason()}", exc_info=True)
             if error.resp.status == 401 or error.resp.status == 403:
-                gmail_monitor_logger.warning("This might be a token or permission issue for this sender.")
+                logger = logging.getLogger('gmail_event_monitor')
+                logger.warning("This might be a token or permission issue for this sender.")
             elif error.resp.status == 404 and 'historyId not found' in str(error.content).lower():
-                 gmail_monitor_logger.warning(f"History ID {last_history_id} not found for {sender_email}. This can happen if history is too old or deleted. Resetting history ID.")
+                 logger = logging.getLogger('gmail_event_monitor')
+                 logger.warning(f"History ID {last_history_id} not found for {sender_email}. This can happen if history is too old or deleted. Resetting history ID.")
                  # Reset last_checked_history_id to None so it re-initializes on next run
                  try:
                     supabase_client.table("senders").update({"last_checked_history_id": None}).eq("id", sender_id).execute()
-                    gmail_monitor_logger.info(f"Reset last_checked_history_id for {sender_email}. Will re-initialize on next run.")
+                    logger = logging.getLogger('gmail_event_monitor')
+                    logger.info(f"Reset last_checked_history_id for {sender_email}. Will re-initialize on next run.")
                  except Exception as db_e:
-                    gmail_monitor_logger.error(f"DB Error resetting history_id for {sender_email}: {db_e}", exc_info=True)
+                    logger = logging.getLogger('gmail_event_monitor')
+                    logger.error(f"DB Error resetting history_id for {sender_email}: {db_e}", exc_info=True)
         except Exception as e:
-            gmail_monitor_logger.error(f"General error processing sender {sender_email}: {e}", exc_info=True)
+            logger = logging.getLogger('gmail_event_monitor')
+            logger.error(f"General error processing sender {sender_email}: {e}", exc_info=True)
 
-    gmail_monitor_logger.info(f"Gmail inbox monitoring finished.")
+    logger = logging.getLogger('gmail_event_monitor')
+    logger.info(f"Gmail inbox monitoring finished.")
+
+
+def is_reply_message(msg):
+    """
+    Checks if a message is a reply by examining email headers.
+    Returns True if the message is a reply, False otherwise.
+    """
+    try:
+        headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
+        
+        # Check standard reply headers
+        if headers.get('in-reply-to'):
+            return True
+            
+        # Check References header for multiple message IDs
+        if headers.get('references'):
+            refs = headers['references'].split()
+            if len(refs) > 1:  # Multiple references indicates a thread
+                return True
+                
+        # Check subject for reply/forward indicators
+        subject = headers.get('subject', '').lower()
+        reply_prefixes = ('re:', 'fw:', 'fwd:', 'aw:')
+        if any(subject.startswith(prefix) for prefix in reply_prefixes):
+            return True
+            
+        # Check for auto-replies
+        auto_submitted = headers.get('auto-submitted', '').lower()
+        if auto_submitted and auto_submitted != 'no':
+            return True
+            
+        return False
+        
+    except Exception as e:
+        gmail_monitor_logger.error(f"Error checking for reply: {str(e)}", exc_info=True)
+        return False
+
 
 if __name__ == "__main__":
+    # ... existing setup code ...
+    
+    # Add this after service initialization but before main loop
+    if '--process-history' in sys.argv:
+        for sender in supabase_client.table("senders").select("sender_email, sender_name").eq("is_active", True).execute().data:
+            process_historical_messages(
+                get_gmail_service(sender["sender_email"]), 
+                sender["sender_email"], 
+                sender["sender_name"], 
+                supabase_client,
+                days_back=1  # Adjust as needed
+            )
+    
+    # Continue with normal monitoring...
     monitor_all_active_senders()

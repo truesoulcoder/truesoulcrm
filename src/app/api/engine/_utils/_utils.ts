@@ -66,7 +66,7 @@ export const getGmailService = (userEmailToImpersonate: string): import('googlea
 
 
 // Logging to Supabase
-export interface Eli5EmailLogEntry {
+export interface EngineLogEntry {
   id?: number; // Assuming BIGINT maps to number
   created_at?: string; // TIMESTAMPTZ
 
@@ -106,10 +106,19 @@ export interface Eli5EmailLogEntry {
   [key: string]: unknown; // Retain for flexibility if extra fields are ever passed
 }
 
-export const logToSupabase = async (logData: Partial<Eli5EmailLogEntry>) => { // Changed to Partial for flexibility
+export interface EmailSendMetric {
+  campaign_id: string;
+  lead_id: string;
+  sender_id: string;
+  message_id?: string;
+  status: 'sent' | 'failed';
+  error?: string;
+}
+
+export const logToSupabase = async (logData: Partial<EngineLogEntry>) => { // Changed to Partial for flexibility
   const client = getSupabaseClient();
   try {
-    const { error } = await client.from('eli5_email_log').insert([logData]);
+    const { error } = await client.from('engine_log').insert([logData]);
     if (error) {
       console.error('Failed to log to Supabase:', error);
       throw error;
@@ -117,6 +126,24 @@ export const logToSupabase = async (logData: Partial<Eli5EmailLogEntry>) => { //
   } catch (error) {
     console.error('Error in logToSupabase:', error);
     // Decide if you want to re-throw or handle silently
+  }
+};
+
+export const logEmailSendMetric = async (metric: EmailSendMetric) => {
+  const client = getSupabaseClient();
+  try {
+    await client.from('engine_log').insert({
+      campaign_id: metric.campaign_id,
+      original_lead_id: metric.lead_id,
+      sender_email_used: metric.sender_id,
+      email_status: metric.status,
+      email_error_message: metric.error,
+      email_message_id: metric.message_id,
+      email_sent_at: new Date().toISOString(),
+      processed_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error logging email metric:', error);
   }
 };
 

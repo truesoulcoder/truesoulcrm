@@ -1,5 +1,5 @@
 // Shared type definitions for the test email workflow
-import { createAdminServerClient } from '@/lib/supabase/server'; // For EmailDispatchFullParams
+import { SupabaseClient } from '@supabase/supabase-js'; // For EmailDispatchFullParams
 import { FineCutLead } from '@/types/leads'; // For LeadData
 
 export interface RequestPayload {
@@ -68,7 +68,7 @@ export interface EngineLogEntry {
 }
 
 export interface EmailDispatchFullParams {
-  supabase: ReturnType<typeof createAdminServerClient>;
+  supabase: SupabaseClient;
   sender: SenderData;
   lead: FineCutLead;
   emailAssets: EmailAssets;
