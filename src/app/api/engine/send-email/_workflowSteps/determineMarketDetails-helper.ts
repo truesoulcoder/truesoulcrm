@@ -15,9 +15,13 @@ export async function determineMarketDetails(
     });
     throw new Error('Market region normalized name is required to determine lead table.');
   }
-  const leadTableName = `${trimmedMarketRegionName}_fine_cut_leads`;
+  // Ensure the market region part of the table name is lowercase
+  const leadTableName = `${trimmedMarketRegionName.toLowerCase()}_fine_cut_leads`;
   return {
     leadTableName,
-    normalizedMarketRegionName: trimmedMarketRegionName,
+    // Keep original trimmedMarketRegionName for normalizedMarketRegionName, 
+    // as its casing might be relevant for other purposes (e.g. display or non-DB logic).
+    // The critical fix is for leadTableName.
+    normalizedMarketRegionName: trimmedMarketRegionName, 
   };
 }
