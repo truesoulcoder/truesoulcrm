@@ -142,7 +142,7 @@ const Sidebar: React.FC = () => {
         ))}
       </ul>
       <div className="mt-auto">
-        <p className="text-xs text-center text-base-content/70">
+        <p className="text-xs text-center text-base-content/50">
           &copy; {new Date().getFullYear()} {companyName || 'True Soul Partners'}
         </p>
       </div>

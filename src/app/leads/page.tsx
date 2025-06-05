@@ -1,6 +1,7 @@
 // src/app/leads/page.tsx
 'use client';
 import LeadsView from '@/components/views/LeadsView';
+import TableExample from '@/components/layout/TableExample';
 
 export default function LeadsPage() {
   return (
@@ -10,6 +11,7 @@ export default function LeadsPage() {
       </div>
       <div className="space-y-4">
         <LeadsView />
+        <TableExample />
       </div>
     </div>
   );

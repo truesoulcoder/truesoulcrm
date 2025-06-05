@@ -69,6 +69,12 @@ export interface CrmFormData {
   updated_at?: string | undefined;
 }
 
+interface MarketRegion {
+  id: string;
+  name: string;
+  normalized_name: string;
+}
+
 const CrmViewInner: React.FC = () => {
   // ...existing state and hooks
 
@@ -118,27 +124,46 @@ const CrmViewInner: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof CrmLead | string; direction: 'ascending' | 'descending' } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
-  const [marketFilter, setMarketFilter] = useState<string>('');
-  const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [marketFilter, setMarketFilter] = useState<string>('all');
+  const [availableMarkets, setAvailableMarkets] = useState<MarketRegion[]>([]);
 
-const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string, any> => {
-  // Don't convert to strings, just return the data as is
-  return { ...data };
-};
+  const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string, any> => {
+    // Don't convert to strings, just return the data as is
+    return { ...data };
+  };
 
-  // Fetch market regions from Supabase on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('market_regions')
+          .select('*')
+          .limit(1);
+        
+        if (error) throw error;
+        
+        console.log('Supabase connected successfully');
+      } catch (err) {
+        console.error('Supabase connection error:', err);
+        setError('Failed to connect to database');
+      }
+    };
+    
+    checkConnection();
+  }, []);
+
   useEffect(() => {
     const fetchMarketRegions = async () => {
       const { data, error } = await supabase
         .from('market_regions')
-        .select('id')
-        .order('id', { ascending: true });
+        .select('id, name, normalized_name')
+        .order('name', { ascending: true });
       if (error) {
         console.error('Failed to fetch market regions:', error);
         setAvailableMarkets([]);
       } else if (data) {
-        setAvailableMarkets(data.map((region: { id: string }) => region.id));
+        setAvailableMarkets(data);
       }
     };
     void fetchMarketRegions();
@@ -458,28 +483,73 @@ const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string
     { key: 'market_region', label: 'Market', sortable: true }
   ];
 
+  const sortedLeads = useMemo(() => {
+    if (!sortConfig) return leads;
+    return [...leads].sort((a, b) => {
+      const aValue = a[sortConfig.key as keyof CrmLead];
+      const bValue = b[sortConfig.key as keyof CrmLead];
+      
+      if (aValue === bValue) return 0;
+      if (aValue == null) return sortConfig.direction === 'ascending' ? -1 : 1;
+      if (bValue == null) return sortConfig.direction === 'ascending' ? 1 : -1;
+      
+      return sortConfig.direction === 'ascending' 
+        ? String(aValue).localeCompare(String(bValue))
+        : String(bValue).localeCompare(String(aValue));
+    });
+  }, [leads, sortConfig]);
+
+  const paginatedLeads = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
+    return sortedLeads.slice(start, end);
+  }, [sortedLeads, currentPage, rowsPerPage]);
+
+  const requestSort = (key: string) => {
+    let direction: 'ascending' | 'descending' = 'ascending';
+    if (sortConfig?.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
   const fetchLeads = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    console.log(`Fetching leads for market: ${marketFilter}`);
     try {
+      const tableName = marketFilter === 'all' 
+        ? 'crm_leads' 
+        : `${marketFilter.toLowerCase().replace(/\\s+/g, '_')}_fine_cut_leads`;
+      
+      console.log(`Querying table: ${tableName}`);
+      
       const { data, error } = await supabase
-        .from('crm_leads')
+        .from(tableName)
         .select('*')
-        .order(sortConfig?.key || 'created_at', { ascending: sortConfig?.direction === 'ascending' })
-        .range((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage - 1);
+        .order(sortConfig?.key || 'created_at', {
+          ascending: sortConfig?.direction === 'ascending'
+        })
+        .range(
+          (currentPage - 1) * rowsPerPage, 
+          currentPage * rowsPerPage - 1
+        );
 
       if (error) throw error;
+      
+      console.log(`Fetched ${data?.length} leads from ${tableName}`);
       setLeads(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching leads:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch leads');
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, rowsPerPage, sortConfig]);
+  }, [currentPage, rowsPerPage, sortConfig, marketFilter]);
 
   useEffect(() => {
-    void fetchLeads();
+    const controller = fetchLeads();
+    return () => {
+      controller?.abort();
+    };
   }, [fetchLeads]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -488,26 +558,23 @@ const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string
   };
 
   const handleMarketFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setMarketFilter(e.target.value);
-    setCurrentPage(1); // Reset to first page on new filter
-  };
-
-  const handleSort = (key: keyof CrmLead | string) => {
-    let direction: 'ascending' | 'descending' = 'ascending';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-      direction = 'descending';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const handlePageChange = (newPage: number) => {
-    setCurrentPage(newPage);
+    const selectedMarketId = e.target.value;
+    const selectedMarket = availableMarkets.find(m => m.id === selectedMarketId);
+    
+    // Use normalized_name for table construction if a market is selected
+    const marketTableValue = selectedMarket ? selectedMarket.normalized_name : 'all';
+    setMarketFilter(marketTableValue);
+    setCurrentPage(1); // Reset to first page when changing markets
   };
 
   const handleRowsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newRowsPerPage = Number(e.target.value);
     setRowsPerPage(newRowsPerPage);
     setCurrentPage(1); // Reset to first page when changing rows per page
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
   };
 
   const handleModalInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -521,29 +588,6 @@ const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string
   const totalPages = Math.ceil(leads.length / rowsPerPage); // This might be incorrect if total count isn't fetched
                                                            // For client-side pagination after full fetch, this is fine.
                                                            // If using server-side pagination with limited fetches, need total count from server.
-
-  // For client-side pagination and sorting after fetching all (or filtered) leads
-  const sortedLeads = useMemo(() => {
-    const sortableLeads = [...leads];
-    if (sortConfig !== null) {
-      sortableLeads.sort((a, b) => {
-        const aValue = a[sortConfig.key as keyof CrmLead] ?? '';
-        const bValue = b[sortConfig.key as keyof CrmLead] ?? '';
-        if (aValue < bValue) {
-          return sortConfig.direction === 'ascending' ? -1 : 1;
-        }
-        if (aValue > bValue) {
-          return sortConfig.direction === 'ascending' ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-    return sortableLeads;
-  }, [leads, sortConfig]);
-
-  const paginatedLeads = useMemo(() => {
-    return sortedLeads.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
-  }, [sortedLeads, currentPage, rowsPerPage]);
 
   return (
     <div className="relative z-10 p-4 md:p-6 lg:p-8 min-h-screen backdrop-blur-sm">
@@ -575,10 +619,10 @@ const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string
             value={marketFilter}
             onChange={handleMarketFilterChange}
           >
-            <option value="">All Markets</option> {/* Assuming empty string for 'All' to match marketFilter initial state '' */}
-            {availableMarkets.map((region: string) => (
-              <option key={region} value={region}>
-                {region}
+            <option value="all">All Markets</option>
+            {availableMarkets.map((region: MarketRegion) => (
+              <option key={region.id} value={region.normalized_name}>
+                {region.name}
               </option>
             ))}
           </select>
@@ -597,90 +641,111 @@ const convertNumericFieldsToStrings = (data: Record<string, any>): Record<string
       </div>
       {/* Leads Table */}
       <div className="overflow-x-auto bg-base-100 shadow-lg rounded-lg mt-6">
-        <table className="table table-zebra w-full">
+        <table className="table w-full">
           <thead>
             <tr>
-              {columnConfigurations.map((col) => (
-                <th
-                  key={col.key}
-                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${col.sortable ? 'cursor-pointer hover:bg-base-200' : ''}`}
-                  onClick={() => col.sortable && handleSort(col.key)}
+              {columnConfigurations.map((column) => (
+                <th 
+                  key={column.key}
+                  className={`cursor-pointer ${sortConfig?.key === column.key ? 'bg-base-200' : ''}`}
+                  onClick={() => requestSort(column.key)}
                 >
-                  {col.label}
-                  {col.sortable && sortConfig && sortConfig.key === col.key && (
-                    sortConfig.direction === 'ascending' ? <ChevronUp className="inline w-4 h-4 ml-1" /> : <ChevronDown className="inline w-4 h-4 ml-1" />
-                  )}
-                  {col.sortable && (!sortConfig || sortConfig.key !== col.key) && (
-                    <ChevronDown className="inline w-4 h-4 ml-1 text-gray-300" />
-                  )}
+                  <div className="flex items-center gap-1">
+                    {column.label}
+                    {sortConfig?.key === column.key && (
+                      <span>
+                        {sortConfig.direction === 'ascending' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {isLoading && (
-              <tr><td colSpan={columnConfigurations.length} className="text-center p-4"><span className="loading loading-spinner"></span> Loading leads...</td></tr>
-            )}
-            {!isLoading && error && (
-              <tr><td colSpan={columnConfigurations.length} className="text-center p-4 text-error">{error}</td></tr>
-            )}
-            {!isLoading && !error && leads.length === 0 && (
-              <tr><td colSpan={columnConfigurations.length} className="text-center p-4">No leads found. Adjust filters or add new leads.</td></tr>
-            )}
-            {!isLoading && !error && leads.map((lead) => (
-              <tr key={lead.id} className="hover:bg-base-200 cursor-pointer" onClick={() => handleOpenModal(lead)}>
-                {columnConfigurations.map(col => (
-                  <td key={`${lead.id}-${col.key}`} className="px-4 py-3 whitespace-nowrap text-sm">
-                    {col.key === 'created_at' || col.key === 'updated_at'
-                      ? new Date(lead[col.key as keyof CrmLead] as string).toLocaleDateString()
-                      : String(lead[col.key as keyof CrmLead] ?? '')}
-                  </td>
-                ))}
+            {isLoading ? (
+              <tr>
+                <td colSpan={columnConfigurations.length} className="text-center p-4">
+                  <span className="loading loading-spinner loading-lg"></span>
+                  <p className="mt-2">Loading leads...</p>
+                </td>
               </tr>
-            ))}
+            ) : paginatedLeads.length === 0 ? (
+              <tr>
+                <td colSpan={columnConfigurations.length} className="text-center p-4">
+                  {marketFilter !== 'all' 
+                    ? `No leads found in ${availableMarkets.find(m => 
+                        m.normalized_name.toLowerCase().replace(/\\s+/g, '_') === marketFilter
+                      )?.name || 'selected market'}` 
+                    : 'No leads found'}
+                </td>
+              </tr>
+            ) : (
+              paginatedLeads.map((lead) => (
+                <tr 
+                  key={lead.id}
+                  className="hover:bg-base-200 transition-colors duration-150 cursor-pointer"
+                  onClick={() => handleOpenModal(lead)}
+                >
+                  {columnConfigurations.map(col => (
+                    <td 
+                      key={`${lead.id}-${col.key}`}
+                      className="px-4 py-3 whitespace-nowrap text-sm border-b border-base-200"
+                    >
+                      {col.key === 'created_at' || col.key === 'updated_at'
+                        ? new Date(lead[col.key as keyof CrmLead] as string).toLocaleDateString()
+                        : String(lead[col.key as keyof CrmLead] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Pagination Controls */}
-      {!isLoading && !error && (leads.length > 0 || currentPage > 1) && (
-        <div className="mt-6 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-700">Rows per page:</span>
-            <select
-              value={rowsPerPage}
-              onChange={handleRowsPerPageChange}
-              className="select select-bordered select-sm"
-              disabled={isLoading}
+      <div className="flex justify-between items-center mt-4">
+        <div className="text-sm text-gray-500">
+          Showing {((currentPage - 1) * rowsPerPage) + 1} to 
+          {Math.min(currentPage * rowsPerPage, leads.length)} of {leads.length} leads
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <select 
+            className="select select-bordered select-sm"
+            value={rowsPerPage}
+            onChange={(e) => {
+              setRowsPerPage(Number(e.target.value));
+              setCurrentPage(1); // Reset to first page when changing page size
+            }}
+          >
+            {[10, 25, 50, 100].map(size => (
+              <option key={size} value={size}>{size} per page</option>
+            ))}
+          </select>
+          
+          <div className="join">
+            <button 
+              className="join-item btn btn-sm"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
             >
-              {[10, 25, 50, 100].map(size => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-700">
+              «
+            </button>
+            <button className="join-item btn btn-sm">
               Page {currentPage}
-            </span>
-            <div className="join">
-              <button
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1 || isLoading}
-                className="join-item btn btn-sm btn-outline"
-              >
-                Prev
-              </button>
-              <button
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={leads.length < rowsPerPage || isLoading}
-                className="join-item btn btn-sm btn-outline"
-              >
-                Next
-              </button>
-            </div>
+            </button>
+            <button 
+              className="join-item btn btn-sm"
+              onClick={() => setCurrentPage(p => Math.min(Math.ceil(leads.length / rowsPerPage), p + 1))}
+              disabled={currentPage >= Math.ceil(leads.length / rowsPerPage)}
+            >
+              »
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Modal for Adding/Editing Leads */}
       <LeadFormModal

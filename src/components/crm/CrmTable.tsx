@@ -1,7 +1,7 @@
 // src/components/crm/CrmTable.tsx
 'use client';
 // External dependencies
-import { Table, flexRender } from '@tanstack/react-table';
+import { Table, flexRender, useTable } from '@tanstack/react-table';
 import { ChevronUp, ChevronDown, Edit3, Trash2, PlusCircle, Search, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback, useMemo, ChangeEvent, FormEvent } from 'react'; 
 import { toast } from 'react-hot-toast';
@@ -125,6 +125,28 @@ const CrmTable: React.FC<CrmTableProps> = ({
     }
   };
 
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const handleSearch = (e: ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
+
+  const filteredData = useMemo(() => {
+    if (!searchTerm) return data;
+    
+    const term = searchTerm.toLowerCase();
+    return data.filter(lead => {
+      return (
+        (lead.first_name && lead.first_name.toLowerCase().includes(term)) ||
+        (lead.last_name && lead.last_name.toLowerCase().includes(term)) ||
+        (lead.email && lead.email.toLowerCase().includes(term)) ||
+        (lead.phone && lead.phone.toString().includes(term)) ||
+        (getFullAddress(lead) && getFullAddress(lead).toLowerCase().includes(term)) ||
+        (lead.status && lead.status.toLowerCase().includes(term))
+      );
+    });
+  }, [data, searchTerm]);
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center p-10">
@@ -135,6 +157,16 @@ const CrmTable: React.FC<CrmTableProps> = ({
 
   return (
     <div className="crm-table-container">
+      <div className="flex items-center gap-2 mb-4">
+        <Search className="h-4 w-4" />
+        <input
+          type="text"
+          placeholder="Search all fields..."
+          className="border rounded px-2 py-1 text-sm"
+          value={searchTerm}
+          onChange={handleSearch}
+        />
+      </div>
       <div className="overflow-x-auto bg-base-100 rounded-lg shadow">
         <table className="table table-zebra w-full">
           <thead>
@@ -148,7 +180,7 @@ const CrmTable: React.FC<CrmTableProps> = ({
             </tr>
           </thead>
           <tbody>
-            {data.map((lead, index) => (
+            {filteredData.map((lead, index) => (
               <tr 
                 key={index} 
                 className="hover:bg-base-200 cursor-pointer" 
@@ -162,10 +194,10 @@ const CrmTable: React.FC<CrmTableProps> = ({
                 <td className="p-3 border-b border-base-300 text-sm">{lead.status}</td>
               </tr>
             ))}
-            {data.length === 0 && (
+            {filteredData.length === 0 && (
               <tr>
                 <td colSpan={6} className="text-center p-4">
-                  No leads found.
+                  {searchTerm ? 'No matching leads found' : 'No leads found'}
                 </td>
               </tr>
             )}

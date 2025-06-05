@@ -136,7 +136,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
           .from('engine_log')
           .select('*')
           .order('processed_at', { ascending: true }) // Fetch oldest first for initial display
-          .limit(50); // Fetch last 50 logs initially
+          .limit(10); // Changed from 50 to match MAX_DISPLAY_LOGS
 
         if (error) {
           console.error('Error fetching initial engine logs:', error);

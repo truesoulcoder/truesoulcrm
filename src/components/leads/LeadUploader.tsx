@@ -23,7 +23,7 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [marketRegion, setMarketRegion] = useState<string>('');
-  const [setMarketRegions, marketRegions] = useState<string[]>([]);
+  const [marketRegions, setMarketRegions] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition(); 
   const successAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -95,7 +95,8 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
           const successMsg = result.message || 'Upload successful!';
           if (addMessage) addMessage('success', successMsg);
           if (onUploadSuccess && selectedFile) {
-            const count = typeof result.details === 'number' ? result.details : (result.details?.count as number | undefined);
+            const count = typeof result.details === 'number' ? result.details : 
+              (typeof result.details === 'object' && result.details !== null ? (result.details as { count: number }).count : undefined);
             onUploadSuccess(selectedFile.name, count);
           }
           if (successAudioRef.current) {
@@ -134,7 +135,7 @@ export default function LeadUploader({ onUploadSuccess, addMessage, isProcessing
   }
 
   return (
-    <div className="relative p-4 border border-gray-200 rounded-lg shadow-sm bg-white min-h-[280px]">
+    <div className="relative p-4 rounded-sm shadow-sm bg-white min-h-[20px]">
       {isProcessing && (
         <div className="absolute inset-0 bg-white bg-opacity-80 flex flex-col items-center justify-center z-10 rounded-lg">
           <span className="loading loading-bars loading-xl text-primary"></span>

@@ -44,7 +44,7 @@ const LeadsView: React.FC = () => {
     
     setTimeout(() => {
       setIsProcessingLeads(false);
-      handleAddMessage('info', 'Lead data refresh simulated.'); 
+      handleAddMessage('info', 'Leads are refreshed.'); 
     }, 2000);
   };
 
@@ -69,34 +69,33 @@ const LeadsView: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-6">Leads Management</h1>
-      
-      <div className="mb-8 p-6 bg-base-200 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Upload New Leads CSV</h2>
-        <LeadUploader 
-          onUploadSuccess={handleUploadSuccess} 
-          addMessage={handleAddMessage} 
-          isProcessing={isProcessingLeads} 
-        />
-      </div>
-
-      {messages.length > 0 && (
-        <div className="space-y-4 mt-6">
-          {messages.map((msg) => (
-            <div key={msg.id} role="alert" className={`alert ${getAlertClass(msg.type)} shadow-lg`}>
-              {getAlertIcon(msg.type)}
-              <span>{msg.text}</span>
-              <button 
-                onClick={() => setMessages(prev => prev.filter(m => m.id !== msg.id))} 
-                className="btn btn-sm btn-ghost absolute right-2 top-1/2 -translate-y-1/2"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+    <div className="container mx-auto px-0 max-w-full">
+      <div className="px-4">
+        <div className="mb-8 max-w-full overflow-x-hidden">
+          <LeadUploader 
+            onUploadSuccess={handleUploadSuccess} 
+            addMessage={handleAddMessage} 
+            isProcessing={isProcessingLeads} 
+          />
         </div>
-      )}
+
+        {messages.length > 0 && (
+          <div className="space-y-4 mt-6 max-w-full overflow-x-hidden">
+            {messages.map((msg) => (
+              <div key={msg.id} role="alert" className={`alert ${getAlertClass(msg.type)} shadow-lg max-w-full`}>
+                {getAlertIcon(msg.type)}
+                <span className="max-w-full overflow-x-auto">{msg.text}</span>
+                <button 
+                  onClick={() => setMessages(prev => prev.filter(m => m.id !== msg.id))} 
+                  className="btn btn-sm btn-ghost absolute right-2 top-1/2 -translate-y-1/2"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
