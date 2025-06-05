@@ -14,12 +14,14 @@ export async function logSystemEvent({
   details,
   campaign_id,
   user_id,
+  level,
 }: {
   event_type: string;
   message: string;
   details?: any;
   campaign_id?: string;
   user_id?: string;
+  level?: string;
 }) {
   const supabase = createAdminServerClient();
   const { error } = await (await supabase).from('system_event_logs').insert({
@@ -28,6 +30,7 @@ export async function logSystemEvent({
     details: details ? (typeof details === 'string' ? details : JSON.stringify(details)) : null,
     campaign_id,
     user_id,
+    level,
     created_at: new Date().toISOString(),
   });
 }

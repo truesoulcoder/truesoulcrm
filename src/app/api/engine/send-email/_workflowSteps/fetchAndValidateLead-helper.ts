@@ -1,6 +1,6 @@
 // src/app/api/engine/send-email/_workflowSteps/fetchAndValidateLead-helper.ts
 import { validateLeadFields } from '@/app/api/engine/send-email/_workflowSteps/_utils'; // Corrected path
-import { createAdminServerClient } from '@/lib/supabase/server';
+import { SupabaseClient } from '@supabase/supabase-js'; // Ensure SupabaseClient is imported
 import { logSystemEvent } from '@/services/logService';
 import { FineCutLead } from '@/types/leads';
 
@@ -17,18 +17,21 @@ function hasMessage(error: unknown): error is { message: string } {
 }
 
 export async function fetchAndValidateLead(
-  supabasePromise: ReturnType<typeof createAdminServerClient>,
+  supabase: SupabaseClient,
   leadTableName: string,
   marketRegionNormalizedName: string,
   specificLeadIdToTest?: string | number,
   campaignId?: string
 ): Promise<FineCutLead> {
-  const supabase = await supabasePromise;
   let leadToProcess: FineCutLead | null = null;
 
   if (specificLeadIdToTest) {
     await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ATTEMPT', message: `Attempting to fetch specific lead ID: ${specificLeadIdToTest} from ${leadTableName}.`, details: { lead_id: specificLeadIdToTest, table: leadTableName, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
-    const { data: specificLead, error: specificLeadError } = await supabase.from(leadTableName).select('*').eq('id', specificLeadIdToTest).maybeSingle<FineCutLead>();
+    const { data: specificLead, error: specificLeadError } = await supabase
+      .from(leadTableName)
+      .select('*')
+      .eq('id', specificLeadIdToTest)
+      .maybeSingle<FineCutLead>();
     if (specificLeadError) {
       const errorMsg = hasMessage(specificLeadError)
         ? specificLeadError.message
@@ -44,7 +47,11 @@ export async function fetchAndValidateLead(
   } else {
     await logSystemEvent({ event_type: 'ENGINE_LEAD_FETCH_ATTEMPT', message: `Attempting to find a suitable lead by iterating through ${leadTableName}. Max attempts: ${MAX_LEAD_FETCH_ATTEMPTS}.`, details: { table: leadTableName, max_attempts: MAX_LEAD_FETCH_ATTEMPTS, marketRegion: marketRegionNormalizedName }, campaign_id: campaignId });
     for (let attempt = 0; attempt < MAX_LEAD_FETCH_ATTEMPTS; attempt++) {
-      const { data: candidateLeads, error: leadFetchError } = await supabase.from(leadTableName).select('*').order('id', { ascending: true }).range(attempt, attempt);
+      const { data: candidateLeads, error: leadFetchError } = await supabase
+        .from(leadTableName)
+        .select('*')
+        .order('id', { ascending: true })
+        .range(attempt, attempt);
       if (leadFetchError) {
         const errorMsg = hasMessage(leadFetchError)
           ? leadFetchError.message
