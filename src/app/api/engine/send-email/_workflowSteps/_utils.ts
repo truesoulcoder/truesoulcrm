@@ -64,13 +64,13 @@ export function validateLeadFields( // Renamed from _validateLeadFields
 }
 
 export async function logToSupabaseTable( // Renamed from logToSupabase for clarity
-  supabaseClient: ReturnType<typeof createAdminServerClient>,
+  supabaseClientPromise: ReturnType<typeof createAdminServerClient>, // Renamed for clarity, this is a Promise
   logData: Partial<EngineLogEntry>,
   leadIdForLog?: string | number | null, // Made optional and clearer
   campaignIdForLog?: string | null // Made optional and clearer
 ): Promise<void> {
   try {
-    const client = await supabaseClient;
+    const client = await supabaseClientPromise; // Await the promise to get the client instance
     const { error } = await client.from('engine_log').insert([logData]);
     if (error) {
       console.error('Error logging to Supabase in logToSupabaseTable:', error.message);

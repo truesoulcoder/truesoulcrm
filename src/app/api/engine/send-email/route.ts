@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
 
     if (jobId && supabaseClient) {
       try {
-        await updateJobStatus(supabaseClient, jobId, CampaignJobStatus.Failed, {
+        await updateJobStatus(supabaseClient, jobId, CampaignJobStatus.FailedPermanent, {
           error_message: `Route handler critical error: ${errorMessage.substring(0, 500)}`,
           processed_at: new Date().toISOString(),
         });
