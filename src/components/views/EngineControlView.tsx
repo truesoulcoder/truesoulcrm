@@ -2,7 +2,7 @@
 
 import { PlayCircle, StopCircle, Mail, AlertTriangle, Info, CheckCircle, RefreshCw, MapPin } from 'lucide-react';
 import React, { useState, useEffect, useCallback, useRef, JSX } from 'react';
-
+import { RealtimeConsole } from '@/components/RealtimeConsole';
 import { supabase } from '@/lib/supabase/client';
 import { Database } from '@/types/supabase';
 import TimePicker from '@/components/ui/TimePicker'; // Added import for TimePicker
@@ -25,6 +25,7 @@ interface EngineLogTablePayload {
   processed_at: string | null; // Changed from timestamp to processed_at
   message: string;
   type: LogEntry['type'];
+  log_level?: string; // Added log_level property
   data?: Record<string, unknown>;
 }
 
@@ -79,6 +80,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
   const [selectedTestMarketRegion, setSelectedTestMarketRegion] = useState<string | undefined>('');
   const [isLoadingMarketRegions, setIsLoadingMarketRegions] = useState<boolean>(true);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
+  const [logRenderKey, setLogRenderKey] = useState(0); // Add this line
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const consoleEndRef = useRef<null | HTMLDivElement>(null);
@@ -186,13 +188,13 @@ const EngineControlView: React.FC = (): JSX.Element => {
       } catch (e: unknown) {
         console.error('Exception fetching initial logs:', e);
         setConsoleLogs(prevLogs => [
-          ...prevLogs,
-          {
+          { 
             id: `${Date.now().toString()}_fetch_exception`,
-            timestamp: new Date().toISOString(),
-            message: `Exception fetching initial logs: ${e instanceof Error ? e.message : 'Unknown error'}`,
-            type: 'error'
-          }
+            timestamp: new Date().toISOString(), 
+            message: `Exception fetching initial logs: ${e instanceof Error ? e.message : 'Unknown error'}. Check browser console.`, 
+            type: 'error' 
+          }, 
+          ...prevLogs.slice(0, MAX_DISPLAY_LOGS - 1)
         ]);
       }
     };
@@ -205,39 +207,72 @@ const EngineControlView: React.FC = (): JSX.Element => {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'engine_log' },
         (payload) => {
-          console.log('New engine log received:', payload.new);
-          const newRawLog = payload.new as EngineLogTablePayload; // Use specific type
-
-          // Safe timestamp handling
-          let timestampStr: string;
-          try {
-            // Use processed_at instead of timestamp
-            if (newRawLog.processed_at) {
-              const dateObj = new Date(newRawLog.processed_at);
-              if (isNaN(dateObj.getTime())) {
-                console.warn(`Invalid processed_at value: '${newRawLog.processed_at}' (log ID: ${newRawLog.id}). Using current time as fallback.`);
-                timestampStr = new Date().toISOString();
-              } else {
-                timestampStr = dateObj.toISOString();
-              }
-            } else {
-              console.warn(`Null or undefined processed_at for log ID: ${newRawLog.id}. Using current time as fallback.`);
-              timestampStr = new Date().toISOString();
-            }
-          } catch (error) {
-            console.error(`Error processing timestamp: ${error}. Using current time as fallback.`);
-            timestampStr = new Date().toISOString();
+          console.log('Engine log payload received (raw):', payload);
+          if (!payload.new) {
+            console.warn('Received Realtime event without payload.new:', payload);
+            return;
           }
 
-          const newLogEntry: LogEntry = {
-            id: String(newRawLog.id),
-            timestamp: timestampStr,
-            message: newRawLog.message || '',
-            type: newRawLog.type as LogEntry['type'],
-            data: newRawLog.data,
-          };
-          // Prepend new log and keep only the latest 10 entries
-          setConsoleLogs(prevLogs => [newLogEntry, ...prevLogs.slice(0, 9)]);
+          try {
+            console.log('Raw payload from Supabase:', JSON.stringify(payload, null, 2));
+            
+            const newRawLog = payload.new as EngineLogTablePayload;
+            console.log('Parsed log entry:', newRawLog);
+
+            // Try to get message from different possible locations
+            const messageContent = 
+              newRawLog.message || 
+              (typeof newRawLog.data === 'object' && newRawLog.data?.message) || 
+              'No message provided';
+            
+            // Parse timestamp
+            let timestampStr: string;
+            if (newRawLog.processed_at) {
+              const dateObj = new Date(newRawLog.processed_at);
+              timestampStr = isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
+            } else {
+              console.warn('Missing processed_at timestamp, using current time');
+              timestampStr = new Date().toISOString();
+            }
+
+            // Map log level to type
+            const logLevel = newRawLog.log_level || 'info';
+            const mappedType: LogEntry['type'] = 
+              (['info', 'error', 'success', 'warning', 'engine'].includes(logLevel) 
+                ? logLevel 
+                : 'info') as LogEntry['type'];
+
+            const newLogEntry: LogEntry = {
+              id: String(newRawLog.id),
+              timestamp: timestampStr,
+              message: typeof messageContent === 'object' ? JSON.stringify(messageContent) : String(messageContent),
+              type: mappedType,
+              data: newRawLog.data,
+            };
+
+            console.log('New log entry to be added:', newLogEntry);
+
+            setConsoleLogs(prevLogs => {
+              // Create a new array with the new log and previous logs, then slice to ensure max length
+              const newLogs = [newLogEntry, ...prevLogs].slice(0, MAX_DISPLAY_LOGS);
+              console.log('[DEBUG] New logs for UI (limited):', newLogs); // Debug log
+              setLogRenderKey(prev => prev + 1); // Force re-render
+              return newLogs; // Return the new array
+            });
+
+          } catch (processingError) {
+            console.error('Critical error processing Realtime engine_log message:', processingError, 'Payload:', payload);
+            // Optionally, add an error log to the UI console itself
+            setConsoleLogs(prevLogs => [
+              { 
+                id: `error_${Date.now()}`, 
+                timestamp: new Date().toISOString(), 
+                message: `Error processing log: ${processingError instanceof Error ? processingError.message : 'Unknown error'}. Check browser console.`, 
+                type: 'error' 
+              }, 
+              ...prevLogs.slice(0, MAX_DISPLAY_LOGS - 1)
+            ]);
+          }
         }
       )
       .subscribe((status, err) => {
@@ -317,6 +352,10 @@ const EngineControlView: React.FC = (): JSX.Element => {
       supabase.removeChannel(systemEventsChannel);
     };
   }, []); // Assuming supabase client is stable
+
+  useEffect(() => {
+    console.log('consoleLogs updated:', consoleLogs);
+  }, [consoleLogs]);
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: Record<string, unknown>) => {
     setConsoleLogs(prevLogs => {
@@ -707,29 +746,7 @@ const EngineControlView: React.FC = (): JSX.Element => {
           <span>{error}</span>
         </div>
       )}
-      <div className="card bordered shadow-lg bg-base-100 mb-6"> {/* Log card - MOVED UP & ADDED mb-6 */}
-        <div className="card-body p-4 md:p-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-xl font-semibold">Real-time Engine Log</h2>
-            {/* Refresh button removed as logs are now real-time via Supabase subscription */}
-          </div>
-          <div className="bg-neutral text-neutral-content rounded-md p-3 h-64 overflow-y-auto text-xs font-mono">
-            {consoleLogs.length === 0 && <p>No log entries yet. Engine activities will appear here.</p>}
-            {consoleLogs.map((log) => (
-              <div key={log.id} className={`flex items-start mb-1 ${log.type === 'error' ? 'text-error' : log.type === 'success' ? 'text-success' : log.type === 'warning' ? 'text-warning' : ''}`}>
-                <span className="mr-2 opacity-70">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                {log.type === 'info' && <Info size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'error' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'success' && <CheckCircle size={14} className="mr-1 mt-px flex-shrink-0" />}
-                {log.type === 'warning' && <AlertTriangle size={14} className="mr-1 mt-px flex-shrink-0 text-warning" />}
-                {log.type === 'engine' && <RefreshCw size={14} className="mr-1 mt-px flex-shrink-0 animate-spin" />} {/* Example for 'engine' type */}
-                <span>{log.message}</span>
-              </div>
-            ))}
-            <div ref={consoleEndRef} />
-          </div>
-        </div>
-      </div>
+      <RealtimeConsole />
       <div className="card bordered shadow-lg bg-base-100 mb-6">
         <div className="card-body p-4 md:p-6"> 
           <div className="mb-6"> 
