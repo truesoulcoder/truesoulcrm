@@ -187,8 +187,9 @@ export async function POST(request: NextRequest) {
     // STEP 2 (Revisited with market_region_normalized_name): Fetch Active Sender
      const sender = await fetchActiveSender(
       supabaseClient,
-      campaignId,
-      marketDetails.normalizedMarketRegionName // Now we have this
+      assignedSenderId, // Pass the assignedSenderId from the job
+      campaignId,       // Pass campaignId for logging/context
+      marketDetails.normalizedMarketRegionName
     );
 
     // STEP 4: Fetch and Validate Lead Data

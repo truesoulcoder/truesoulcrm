@@ -86,11 +86,19 @@ export async function sendEmailAndLogOutcome(
     });
 
     if (emailResult.success) {
-      await logToSupabaseTable(supabase, { ...logDetails, email_status: 'SENT_TEST' }, lead.id, campaignId); // Using imported util
+      const statusToLog = sendToLead ? 'SENT' : 'SENT_TEST'; 
+      await logToSupabaseTable(supabase, { 
+        ...logDetails, 
+        email_status: statusToLog,
+      }, lead.id, campaignId);
       await logSystemEvent({ event_type: 'ENGINE_EMAIL_SEND_SUCCESS', message: `Email sent successfully to ${recipientEmail} for lead ${lead.id}. Message ID: ${emailResult.messageId}`, details: { lead_id: lead.id, message_id: emailResult.messageId, recipient: recipientEmail, marketRegion: marketRegionNormalizedName, original_lead_id: String(lead.id) }, campaign_id: campaignId });
       return { success: true, messageId: emailResult.messageId };
     } else {
-      await logToSupabaseTable(supabase, { ...logDetails, email_status: 'FAILED_SENDING', email_error_message: (emailResult.error as Error)?.message || "Unknown Gmail service error" }, lead.id, campaignId); // Using imported util
+      await logToSupabaseTable(supabase, { 
+        ...logDetails, 
+        email_status: 'FAILED_SENDING', 
+        email_error_message: (emailResult.error as Error)?.message || "Unknown Gmail service error"
+      }, lead.id, campaignId);
       return { success: false, error: (emailResult.error as Error)?.message || "Unknown error from sendGmailService" };
     }
   } catch (emailError: unknown) {

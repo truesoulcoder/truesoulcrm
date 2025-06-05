@@ -220,37 +220,29 @@ export default function CampaignsView() {
         };
 
         if (editingId) {
-          // Destructure created_at from campaignData. The rest are other properties.
-          const { created_at, ...otherCampaignDataProperties } = campaignData;
-
-          // Initialize the payload with properties other than id and created_at.
-          // Explicitly type the payload to match Supabase's expected Update type for 'campaigns'.
+          // Update existing campaign
+          // Exclude id and created_at from the payload as they should not be updated.
+          const { id: campaignIdToExclude, created_at: createdAtToExclude, ...updateableCampaignData } = campaignData;
           const payload: Database['public']['Tables']['campaigns']['Update'] = {
-            ...otherCampaignDataProperties,
-            updated_at: new Date().toISOString(), // Ensure updated_at is always fresh for updates
+            ...updateableCampaignData,
+            updated_at: new Date().toISOString(), // Always update the updated_at timestamp
           };
 
-          // If created_at from campaignData is a string, include it in the payload.
-          // If it's null or undefined, it will remain undefined in the payload, satisfying the type.
-          if (typeof created_at === 'string') {
-            payload.created_at = created_at;
-          }
-
-          // Update existing campaign using the constructed payload.
           const { error } = await supabase
             .from('campaigns')
             .update(payload)
-            .eq('id', editingId); // Use editingId (or id from campaignData if preferred and available)
+            .eq('id', editingId);
 
           if (error) throw error;
         } else {
           // Create new campaign
-          // Ensure created_at is not null for insert, as Supabase expects string | undefined
-          const { created_at, ...otherCampaignDataProperties } = campaignData;
+          // Exclude created_at from campaignData if it exists, as we'll set it fresh.
+          // id might be client-generated, so we keep it if present in campaignData.
+          const { created_at: createdAtFromFormData, ...otherCampaignDataProperties } = campaignData;
           const payloadForInsert: Database['public']['Tables']['campaigns']['Insert'] = {
-            ...otherCampaignDataProperties,
-            created_at: created_at === null ? undefined : created_at, // Handle null for created_at
-            updated_at: new Date().toISOString(), // Set updated_at for new records as well
+            ...otherCampaignDataProperties, // Includes 'id' if it was in campaignData
+            created_at: new Date().toISOString(), // Always set created_at for new records
+            updated_at: new Date().toISOString(), // Also set updated_at for new records
           };
 
           const { error } = await supabase
@@ -260,6 +252,7 @@ export default function CampaignsView() {
           if (error) throw error;
         }
 
+        
 
         await fetchCampaigns();
         setIsModalOpen(false);

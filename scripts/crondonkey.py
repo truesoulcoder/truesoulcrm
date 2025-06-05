@@ -5,15 +5,119 @@ import requests
 import logging
 import json
 from datetime import datetime, timezone
+import sys # Added for exit and traceback
+import traceback # Added for detailed error logging
+from supabase import create_client, Client as SupabaseClient # Added SupabaseClient for type hinting
 
-# --- Configuration ---
-LOG_LEVEL = os.getenv("CRON_LOG_LEVEL", "INFO").upper()
+# --- Import the Gmail event monitor --- 
+# Assuming gmail_event_monitor.py is in the same directory (scripts/)
+try:
+    import gmail_event_monitor 
+except ModuleNotFoundError:
+    logging.getLogger(__name__).error("CRITICAL: Could not import gmail_event_monitor.py. Ensure it's in the same directory as crondonkey.py or PYTHONPATH is set.")
+    sys.exit(1)
+
+# --- Configuration --- 
+# Load .env files. gmail_event_monitor also does this, but good for crondonkey's own vars.
+# Assumes .env.local and .env are in the parent directory of 'scripts/'
+from dotenv import load_dotenv
+dotenv_path_local = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local')
+dotenv_path_env = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+load_dotenv(dotenv_path=dotenv_path_local, override=True)
+load_dotenv(dotenv_path=dotenv_path_env)
+
+OVERALL_LOG_LEVEL = os.getenv('OVERALL_LOG_LEVEL', 'DEBUG').upper()
+CRONDONKEY_LOG_LEVEL = os.getenv('CRONDONKEY_LOG_LEVEL', 'INFO').upper()
+SUPABASE_LOG_LEVEL = os.getenv('SUPABASE_LOG_LEVEL', 'INFO').upper() # New: Log level for Supabase
+
+# Supabase Configuration
+SUPABASE_URL = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
 API_ENDPOINT = os.getenv("CRON_API_ENDPOINT", "http://localhost:3000/api/engine/send-email")
 STATE_FILE = "crondonkey_state.json"
 POLLING_INTERVAL_SECONDS = int(os.getenv("CRON_POLLING_INTERVAL_SECONDS", 30))
 
-logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# --- Gmail Monitoring Configuration ---
+GMAIL_MONITOR_INTERVAL_SECONDS = int(os.getenv("GMAIL_MONITOR_INTERVAL_SECONDS", 15 * 60)) # Default 15 minutes
+last_gmail_monitor_run_time = 0 # Initialize to ensure it runs on first suitable cycle
+
+# --- SupabaseLogHandler Class Definition ---
+class SupabaseLogHandler(logging.Handler):
+    def __init__(self, supabase_client: SupabaseClient, supabase_table_name: str = 'system_script_logs'):
+        super().__init__()
+        self.supabase_client = supabase_client
+        self.supabase_table_name = supabase_table_name
+        self.script_name = os.path.basename(__file__) # Get the name of the current script
+
+    def emit(self, record: logging.LogRecord):
+        if not self.supabase_client:
+            # Fallback or error if Supabase client isn't initialized
+            print(f"Supabase client not initialized. Log not sent: {self.format(record)}")
+            return
+        try:
+            log_entry = {
+                'created_at': datetime.utcnow().isoformat(), # Changed 'timestamp' to 'created_at'
+                'script_name': self.script_name,
+                'log_level': record.levelname,
+                'message': self.format(record),
+                'details': {}  # Changed 'details_json' to 'details'
+            }
+            if record.exc_info:
+                log_entry['details']['exception'] = logging.Formatter().formatException(record.exc_info)
+            
+            self.supabase_client.table(self.supabase_table_name).insert(log_entry).execute()
+        except Exception as e:
+            # Handle exceptions during logging to Supabase, e.g., print to stderr
+            print(f"Failed to send log to Supabase: {e}\nRecord: {self.format(record)}")
+
+# --- Logger Setup ---
+# Get the root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(OVERALL_LOG_LEVEL)
+
+# Create a console handler for the root logger
+console_handler = logging.StreamHandler()
+console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+# Add console handler to root logger only if it doesn't have one to avoid duplicate console logs
+if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+    root_logger.addHandler(console_handler)
+
+# Create a specific logger for crondonkey
+crondonkey_logger = logging.getLogger('crondonkey')
+crondonkey_logger.setLevel(CRONDONKEY_LOG_LEVEL)
+crondonkey_logger.propagate = False  # Prevent logs from being passed to the root logger's handlers if we add specific ones
+
+# Add the console handler to crondonkey_logger if it's not already there or if no root handlers exist
+# This ensures crondonkey logs go to console at its specific level
+if not crondonkey_logger.handlers:
+    crondonkey_console_handler = logging.StreamHandler() # Separate handler for crondonkey console output
+    crondonkey_console_handler.setFormatter(console_formatter)
+    crondonkey_console_handler.setLevel(CRONDONKEY_LOG_LEVEL) # Ensure this handler respects crondonkey's level
+    crondonkey_logger.addHandler(crondonkey_console_handler)
+
+# Initialize Supabase client for logging
+supabase_client_for_logging: SupabaseClient = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    try:
+        supabase_client_for_logging = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        crondonkey_logger.info("Successfully connected to Supabase for logging.")
+        
+        # Create and add SupabaseLogHandler to crondonkey_logger
+        supabase_handler = SupabaseLogHandler(supabase_client=supabase_client_for_logging)
+        supabase_handler.setLevel(SUPABASE_LOG_LEVEL) # Set level for logs sent to Supabase
+        supabase_log_formatter = logging.Formatter('%(message)s') # Keep Supabase messages clean
+        supabase_handler.setFormatter(supabase_log_formatter)
+        crondonkey_logger.addHandler(supabase_handler)
+        crondonkey_logger.info(f"SupabaseLogHandler added to crondonkey_logger. Logs >= {SUPABASE_LOG_LEVEL} will be sent to Supabase.")
+
+    except Exception as e:
+        crondonkey_logger.error(f"Failed to initialize Supabase client or add SupabaseLogHandler: {e}", exc_info=True)
+else:
+    crondonkey_logger.warning("Supabase URL or Service Key not configured. Supabase logging disabled.")
+
+logger = crondonkey_logger
 
 # --- State Management ---
 def load_state():
@@ -148,23 +252,43 @@ def process_manifest(csv_filepath, processed_job_ids_from_state):
     return newly_processed_job_ids
 
 def main_loop(csv_filepath):
+    global last_gmail_monitor_run_time # Declare as global to modify it
     logger.info(f"Crondonkey (Python/CSV - Simplified Payload) starting. Polling: {POLLING_INTERVAL_SECONDS}s. API: {API_ENDPOINT}")
+    logger.info(f"Gmail Event Monitoring Interval: {GMAIL_MONITOR_INTERVAL_SECONDS}s")
     processed_ids_from_state = load_state()
+
+    # Ensure Gmail monitor runs on the first suitable cycle after startup
+    last_gmail_monitor_run_time = time.time() - GMAIL_MONITOR_INTERVAL_SECONDS
 
     while True:
         logger.info(f"Starting new processing cycle for {csv_filepath}...")
+        
+        # --- Task 1: Job Manifest Processing ---
         newly_processed_this_cycle = process_manifest(csv_filepath, processed_ids_from_state)
         
         if newly_processed_this_cycle:
             processed_ids_from_state.update(newly_processed_this_cycle)
             save_state(processed_ids_from_state)
         
+        # --- Task 2: Gmail Inbox Monitoring ---
+        current_time = time.time()
+        if (current_time - last_gmail_monitor_run_time) >= GMAIL_MONITOR_INTERVAL_SECONDS:
+            logger.info(f"Interval reached. Triggering Gmail inbox monitoring...")
+            try:
+                gmail_event_monitor.monitor_all_active_senders()
+                last_gmail_monitor_run_time = current_time # Update last run time
+            except Exception as e:
+                logger.error(f"CRITICAL ERROR during Gmail monitoring execution: {e}")
+                logger.error(traceback.format_exc()) # Log full traceback
+                # Optionally, update last_gmail_monitor_run_time here too to prevent rapid retries
+                # if the error is persistent and you want a cool-down.
+                # last_gmail_monitor_run_time = current_time 
+        else:
+            logger.debug(f"Gmail monitor interval not yet reached. Next check in approx. {int(GMAIL_MONITOR_INTERVAL_SECONDS - (current_time - last_gmail_monitor_run_time))}s.")
+
         logger.info(f"Cycle finished. Sleeping for {POLLING_INTERVAL_SECONDS} seconds...")
         time.sleep(POLLING_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     manifest_path = os.getenv("CRON_MANIFEST_PATH", "job_manifest.csv") 
-    # Ensure .env.local is in parent dir or env vars are set
-    # from dotenv import load_dotenv
-    # load_dotenv('../.env.local') # If .env.local is in parent dir of 'scripts'
     main_loop(manifest_path)

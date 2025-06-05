@@ -268,6 +268,56 @@ const EngineControlView: React.FC = (): JSX.Element => {
     };
   }, []); // Empty dependency array, supabase client is stable
 
+  // Real-time log updates from campaign_jobs table
+  useEffect(() => {
+    const campaignJobsChannel = supabase
+      .channel('campaign_jobs_changes') // Unique channel name
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'campaign_jobs' }, // Listen for all changes (INSERT, UPDATE, DELETE)
+        (payload) => {
+          console.log('Realtime: Change in campaign_jobs:', payload);
+          // Optionally, format and add to consoleLogs state if needed for UI display
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to campaign_jobs changes!');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+          console.error('Campaign_jobs subscription error. Status:', status, 'Error:', err);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(campaignJobsChannel);
+    };
+  }, []); // Assuming supabase client is stable
+
+  // Real-time log updates from system_event_logs table
+  useEffect(() => {
+    const systemEventsChannel = supabase
+      .channel('system_event_logs_changes') // Unique channel name
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'system_event_logs' }, // Typically listen for INSERTs
+        (payload) => {
+          console.log('Realtime: New system_event_log entry:', payload.new);
+          // Optionally, format and add to consoleLogs state
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to system_event_logs changes!');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+          console.error('System_event_logs subscription error. Status:', status, 'Error:', err);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(systemEventsChannel);
+    };
+  }, []); // Assuming supabase client is stable
+
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: Record<string, unknown>) => {
     setConsoleLogs(prevLogs => {
       const updatedLogs = [
