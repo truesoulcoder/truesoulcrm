@@ -240,9 +240,7 @@ def process_message_for_engagement(message_id, gmail_service, sender_email_used,
         try:
             msg = gmail_service.users().messages().get(
                 userId='me',
-                id=message_id,
-                format='metadata',
-                includeSpamTrash=True
+                id=message_id
             ).execute()
             
             if 'SPAM' in msg.get('labelIds', []):

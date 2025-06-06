@@ -1,21 +1,15 @@
 // External dependencies
 import { MapPin, X } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, useRef } from 'react';
- 
+import { deleteCrmLeadAction } from '@/app/crm/actions'; // As requested, though onDelete prop handles the call
 import { useGoogleMapsApi } from '@/components/maps/GoogleMapsLoader';
 import { Database } from '@/db_types';
 
 interface LeadFormModalProps {
   lead?: Partial<Database['public']['Tables']['crm_leads']['Row']>;
   onClose: () => void;
-  onSubmit: (lead: Omit<Partial<Database['public']['Tables']['crm_leads']['Insert']>, 'baths'|'beds'|'assessed_total'|'year_built'|'lot_size_sqft'|'square_footage'> & {
-    baths?: number | null;
-    beds?: number | null;
-    assessed_total?: number | null;
-    year_built?: number | null;
-    lot_size_sqft?: number | null;
-    square_footage?: number | null;
-  }) => void;
+  onSubmit: (lead: LeadFormData) => void; // Updated onSubmit prop type
+  onDelete?: (leadId: number | string) => Promise<void>; // Added onDelete prop
   isOpen: boolean;
   isLoaded: boolean;
   isEditMode?: boolean;
@@ -28,9 +22,10 @@ interface LeadFormModalProps {
 }
 
 interface LeadFormData {
-  contact_name: string;
+  first_name: string; // Added
+  last_name: string; // Added
   contact_email: string;
-  contact_type: string;
+  contact_type: string; // Assuming this stays for now
   contact_phone: string;
   property_address: string;
   property_city: string;
@@ -44,6 +39,8 @@ interface LeadFormData {
   year_built: number | null;
   lot_size_sqft: number | null;
   notes: string;
+  status: string; // Added
+  street_address: string; // Added
 }
 
 const LeadFormModal = ({ 
@@ -52,30 +49,62 @@ const LeadFormModal = ({
   onSubmit,
   isOpen,
   isLoaded,
+  isEditMode, // Destructure isEditMode
+  onDelete,   // Destructure onDelete
 }: LeadFormModalProps) => {
   const { isLoaded: mapsLoaded, loadError } = useGoogleMapsApi();
   const [streetViewLoaded, setStreetViewLoaded] = useState(false);
   const [panoramaPosition, setPanoramaPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [formData, setFormData] = useState<LeadFormData>({
-    contact_name: lead.contact_name ?? '',
-    contact_email: lead.contact_email ?? '',
-    contact_type: lead.contact_type ?? '',
-    contact_phone: lead.contact_phone ?? '',
-    property_address: lead.property_address ?? '',
-    property_city: lead.property_city ?? '',
-    property_state: lead.property_state ?? '',
-    property_postal_code: lead.property_postal_code ?? '',
-    assessed_total: lead.assessed_total ? Number(lead.assessed_total) : null,
-    property_type: lead.property_type ?? '',
-    square_footage: lead.square_footage ? Number(lead.square_footage) : null,
-    beds: lead.beds ? Number(lead.beds) : null,
-    baths: lead.baths ? Number(lead.baths) : null,
-    year_built: lead.year_built ? Number(lead.year_built) : null,
-    lot_size_sqft: lead.lot_size_sqft ? Number(lead.lot_size_sqft) : null,
-    notes: lead.notes ?? ''
+    first_name: lead?.first_name ?? '', 
+    last_name: lead?.last_name ?? '',  
+    contact_email: lead?.contact_email ?? '',
+    contact_type: lead?.contact_type ?? '', 
+    contact_phone: lead?.contact_phone ?? '',
+    property_address: lead?.property_address ?? '',
+    property_city: lead?.property_city ?? '',
+    property_state: lead?.property_state ?? '',
+    property_postal_code: lead?.property_postal_code ?? '',
+    assessed_total: lead?.assessed_total ? Number(lead.assessed_total) : null,
+    property_type: lead?.property_type ?? '',
+    square_footage: lead?.square_footage ? Number(lead.square_footage) : null,
+    beds: lead?.beds ? Number(lead.beds) : null,
+    baths: lead?.baths ? Number(lead.baths) : null,
+    year_built: lead?.year_built ? Number(lead.year_built) : null,
+    lot_size_sqft: lead?.lot_size_sqft ? Number(lead.lot_size_sqft) : null,
+    notes: lead?.notes ?? '',
+    status: lead?.status ?? '', 
+    street_address: lead?.street_address ?? '', 
   } as LeadFormData);
 
   const modalContentRef = useRef<HTMLDivElement>(null);
+
+  // Effect to reset formData when modal opens or lead prop changes
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        first_name: lead?.contact_name ?? '', // Map contact_name to first_name
+        last_name: '', // Default last_name to blank
+        contact_email: lead?.contact_email ?? '',
+        contact_type: lead?.contact_type ?? '',
+        contact_phone: lead?.contact_phone ?? '',
+        property_address: lead?.property_address ?? '',
+        property_city: lead?.property_city ?? '',
+        property_state: lead?.property_state ?? '',
+        property_postal_code: lead?.property_postal_code ?? '',
+        assessed_total: lead?.assessed_total ? Number(lead.assessed_total) : null,
+        property_type: lead?.property_type ?? '',
+        square_footage: lead?.square_footage ? Number(lead.square_footage) : null,
+        beds: lead?.beds ? Number(lead.beds) : null,
+        baths: lead?.baths ? Number(lead.baths) : null,
+        year_built: lead?.year_built ? Number(lead.year_built) : null,
+        lot_size_sqft: lead?.lot_size_sqft ? Number(lead.lot_size_sqft) : null,
+        notes: lead?.notes ?? '',
+        status: lead?.status ?? '',
+        street_address: lead?.street_address ?? '', // Will be '' if not on lead object
+      });
+    }
+  }, [lead, isOpen, setFormData]); // setFormData is stable, but good practice to include
 
   const initStreetView = useCallback(async () => {
     if (!formData.property_address || !mapsLoaded || loadError) return;
@@ -126,15 +155,9 @@ const LeadFormModal = ({
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      void onSubmit({
-        ...formData,
-        assessed_total: formData.assessed_total,
-        square_footage: formData.square_footage,
-        beds: formData.beds,
-        baths: formData.baths,
-        year_built: formData.year_built,
-        lot_size_sqft: formData.lot_size_sqft
-      });
+      // Pass the entire formData, which now includes all new and existing fields
+      // The numeric conversions are handled by onInputChange and types in LeadFormData
+      void onSubmit(formData); 
     } catch (error) {
       console.error('Failed to submit lead:', error);
     }
@@ -165,14 +188,37 @@ const LeadFormModal = ({
 
   return (
     <div className="modal modal-open">
-      <div ref={modalContentRef} className="modal-box w-11/12 max-w-4xl">
+      <div ref={modalContentRef} className="modal-box w-11/12 max-w-4xl bg-base-200">
         <button 
           className="btn btn-sm btn-circle absolute right-2 top-2"
           onClick={onClose}
         >
           <X size={18} />
         </button>
-        <h3 className="font-bold text-lg mb-4">{formData.property_address || (lead ? 'Edit Lead' : 'Add New Lead')}</h3>
+        <h3 className="font-bold text-lg mb-4">
+          {formData.property_address 
+            ? `Property Location: ${formData.property_address}` 
+            : (isEditMode ? 'Edit Lead' : 'Add New Lead')}
+        </h3>
+
+        {/* StreetView Container - Moved Here */}
+        {streetViewLoaded && panoramaPosition && (
+          <div className="mt-4 h-64 w-full">
+            <div 
+              id="street-view" 
+              className="h-full w-full rounded-lg border border-gray-200"
+              ref={(ref) => {
+                if (ref && !ref.hasChildNodes() && panoramaPosition) {
+                  new google.maps.StreetViewPanorama(ref, {
+                    position: panoramaPosition,
+                    pov: { heading: 165, pitch: 0 },
+                    zoom: 1
+                  });
+                }
+              }}
+            />
+          </div>
+        )}
         
         <form 
           onSubmit={(e) => {
@@ -181,19 +227,34 @@ const LeadFormModal = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Contact Info */}
+          {/* CONTACT Section */}
+          <div className="divider divider-start font-bold uppercase text-sm mt-6 mb-2">CONTACT</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+            {/* First Name */}
             <div>
-              <label className="label"><span className="label-text">Contact Name</span></label>
+              <label className="label"><span className="label-text">First Name</span></label>
               <input 
                 type="text" 
-                name="contact_name" 
-                placeholder="Contact Name" 
-                className={`input input-sm input-bordered w-full ${formData.contact_name ? 'input-success' : ''}`} 
-                value={formData.contact_name || ''} 
+                name="first_name" 
+                placeholder="First Name" 
+                className={`input input-sm input-bordered w-full ${formData.first_name ? 'input-success' : ''}`} 
+                value={formData.first_name} 
                 onChange={onInputChange} 
               />
             </div>
+            {/* Last Name */}
+            <div>
+              <label className="label"><span className="label-text">Last Name</span></label>
+              <input 
+                type="text" 
+                name="last_name" 
+                placeholder="Last Name" 
+                className={`input input-sm input-bordered w-full ${formData.last_name ? 'input-success' : ''}`} 
+                value={formData.last_name} 
+                onChange={onInputChange} 
+              />
+            </div>
+            {/* Contact Email */}
             <div>
               <label className="label"><span className="label-text">Contact Email</span></label>
               <input 
@@ -205,17 +266,7 @@ const LeadFormModal = ({
                 onChange={onInputChange} 
               />
             </div>
-            <div>
-              <label className="label"><span className="label-text">Contact Type</span></label>
-              <input 
-                type="text" 
-                name="contact_type" 
-                placeholder="Contact Type" 
-                className={`input input-sm input-bordered w-full ${formData.contact_type ? 'input-success' : ''}`} 
-                value={formData.contact_type || ''} 
-                onChange={onInputChange} 
-              />
-            </div>
+            {/* Contact Phone */}
             <div>
               <label className="label"><span className="label-text">Contact Phone</span></label>
               <input 
@@ -227,68 +278,119 @@ const LeadFormModal = ({
                 onChange={onInputChange} 
               />
             </div>
+            {/* Contact Type - Assuming this stays with contact info */}
+             <div className="md:col-span-2"> {/* Spans two columns */}
+              <label className="label"><span className="label-text">Contact Type</span></label>
+              <input 
+                type="text" 
+                name="contact_type" 
+                placeholder="Contact Type (e.g., Owner, Agent, Tenant)" 
+                className={`input input-sm input-bordered w-full ${formData.contact_type ? 'input-success' : ''}`} 
+                value={formData.contact_type || ''} 
+                onChange={onInputChange} 
+              />
+            </div>
           </div>
-          {/* Property Info */}
-          <div className="divider">Property Information</div>
-          <div className="space-y-4">
-            <div className="relative">
-              <label className="label"><span className="label-text">Property Address</span></label>
+
+          {/* LOCATION Section */}
+          <div className="divider divider-start font-bold uppercase text-sm mt-6 mb-2">LOCATION</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1"> 
+            
+            {/* Status Dropdown */}
+            <div className="md:col-span-1"> {/* Each field takes one column on medium screens and above */}
+              <label className="label"><span className="label-text">Status</span></label>
+              <select
+                name="status"
+                className="select select-sm select-bordered w-full"
+                value={formData.status}
+                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+              >
+                <option value="">-- Select Status --</option>
+                <option value="New">New</option>
+                <option value="Qualified">Qualified</option>
+                <option value="Unqualified">Unqualified</option>
+              </select>
+            </div>
+
+            {/* Empty div for spacing, or another field can go here */}
+            <div className="md:col-span-1"></div>
+
+            {/* Full Property Address (Spans 2 columns) */}
+            <div className="relative md:col-span-2">
+              <label className="label"><span className="label-text">Full Property Address (Geocoding)</span></label>
               <input 
                 type="text" 
                 name="property_address" 
-                placeholder="Property Address" 
+                placeholder="Enter full address for geocoding..." 
                 className={`input input-sm input-bordered w-full pr-10 ${formData.property_address ? 'input-success' : ''}`} 
                 value={formData.property_address || ''} 
                 onChange={onInputChange} 
               />
               <button 
                 type="button"
-                className="absolute right-2 top-10 transform -translate-y-1/2 text-gray-500 hover:text-primary"
+                className="absolute right-2 top-9 transform text-gray-500 hover:text-primary" // Adjusted top for input-sm
                 onClick={onGeocode}
-                disabled={!formData.property_address || !isLoaded}
+                disabled={!formData.property_address || !mapsLoaded} // mapsLoaded instead of isLoaded
               >
                 <MapPin size={18} />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="label"><span className="label-text">City</span></label>
-                <input 
-                  type="text" 
-                  name="property_city" 
-                  placeholder="City" 
-                  className={`input input-sm input-bordered w-full ${formData.property_city ? 'input-success' : ''}`} 
-                  value={formData.property_city || ''} 
-                  onChange={onInputChange} 
-                />
-              </div>
-              <div>
-                <label className="label"><span className="label-text">State</span></label>
-                <input 
-                  type="text" 
-                  name="property_state" 
-                  placeholder="State" 
-                  className={`input input-sm input-bordered w-full ${formData.property_state ? 'input-success' : ''}`} 
-                  value={formData.property_state || ''} 
-                  onChange={onInputChange} 
-                />
-              </div>
-              <div>
-                <label className="label"><span className="label-text">Postal Code</span></label>
-                <input 
-                  type="text" 
-                  name="property_postal_code" 
-                  placeholder="Postal Code" 
-                  className={`input input-sm input-bordered w-full ${formData.property_postal_code ? 'input-success' : ''}`} 
-                  value={formData.property_postal_code || ''} 
-                  onChange={onInputChange} 
-                />
-              </div>
+            {/* Street Address */}
+            <div className="md:col-span-1">
+              <label className="label"><span className="label-text">Street Address</span></label>
+              <input 
+                type="text" 
+                name="street_address" 
+                placeholder="Street Address" 
+                className={`input input-sm input-bordered w-full ${formData.street_address ? 'input-success' : ''}`} 
+                value={formData.street_address} 
+                onChange={onInputChange} 
+              />
+            </div>
+
+            {/* City */}
+            <div className="md:col-span-1">
+              <label className="label"><span className="label-text">City</span></label>
+              <input 
+                type="text" 
+                name="property_city" 
+                placeholder="City" 
+                className={`input input-sm input-bordered w-full ${formData.property_city ? 'input-success' : ''}`} 
+                value={formData.property_city || ''} 
+                onChange={onInputChange} 
+              />
+            </div>
+
+            {/* State */}
+            <div className="md:col-span-1">
+              <label className="label"><span className="label-text">State</span></label>
+              <input 
+                type="text" 
+                name="property_state" 
+                placeholder="State" 
+                className={`input input-sm input-bordered w-full ${formData.property_state ? 'input-success' : ''}`} 
+                value={formData.property_state || ''} 
+                onChange={onInputChange} 
+              />
+            </div>
+
+            {/* Zip */}
+            <div className="md:col-span-1">
+              <label className="label"><span className="label-text">Zip</span></label>
+              <input 
+                type="text" 
+                name="property_postal_code" 
+                placeholder="Zip Code" 
+                className={`input input-sm input-bordered w-full ${formData.property_postal_code ? 'input-success' : ''}`} 
+                value={formData.property_postal_code || ''} 
+                onChange={onInputChange} 
+              />
             </div>
             
-            <div>
-              <label className="label"><span className="label-text">Assessed Value</span></label>
+            {/* Appraised Value */}
+            <div className="md:col-span-1">
+              <label className="label"><span className="label-text">Appraised Value</span></label>
               <input 
                 type="number" 
                 name="assessed_total" 
@@ -299,9 +401,10 @@ const LeadFormModal = ({
               />
             </div>
 
-            <div>
+            {/* Property Type (Spans 2 columns for better layout of radio buttons) */}
+            <div className="md:col-span-2">
               <label className="label"><span className="label-text">Property Type</span></label>
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4 mt-1">
                 <label className="flex items-center cursor-pointer">
                   <input 
                     type="radio" 
@@ -311,7 +414,7 @@ const LeadFormModal = ({
                     checked={formData.property_type === 'Single Family'} 
                     onChange={onInputChange} 
                   />
-                  <span className="ml-2">Single Family</span>
+                  <span className="label-text ml-2">Single Family</span>
                 </label>
                 <label className="flex items-center cursor-pointer">
                   <input 
@@ -322,25 +425,26 @@ const LeadFormModal = ({
                     checked={formData.property_type === 'Vacant Land'} 
                     onChange={onInputChange} 
                   />
-                  <span className="ml-2">Vacant Land</span>
+                  <span className="label-text ml-2">Vacant Land</span>
                 </label>
               </div>
             </div>
 
+            {/* Conditional Fields based on Property Type */}
             {formData.property_type === 'Single Family' && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="label"><span className="label-text">Square Footage</span></label>
+              <>
+                <div className="md:col-span-1">
+                  <label className="label"><span className="label-text">SQ FT</span></label>
                   <input 
                     type="number" 
                     name="square_footage" 
-                    placeholder="Square Footage" 
+                    placeholder="SQ FT" 
                     className={`input input-sm input-bordered w-full ${formData.square_footage !== null ? 'input-success' : ''}`} 
                     value={formData.square_footage !== null ? formData.square_footage.toString() : ''} 
                     onChange={onInputChange} 
                   />
                 </div>
-                <div>
+                <div className="md:col-span-1">
                   <label className="label"><span className="label-text">Beds</span></label>
                   <input 
                     type="number" 
@@ -351,7 +455,7 @@ const LeadFormModal = ({
                     onChange={onInputChange} 
                   />
                 </div>
-                <div>
+                <div className="md:col-span-1">
                   <label className="label"><span className="label-text">Baths</span></label>
                   <input 
                     type="number" 
@@ -362,7 +466,7 @@ const LeadFormModal = ({
                     onChange={onInputChange} 
                   />
                 </div>
-                <div>
+                <div className="md:col-span-1">
                   <label className="label"><span className="label-text">Year Built</span></label>
                   <input 
                     type="number" 
@@ -373,70 +477,76 @@ const LeadFormModal = ({
                     onChange={onInputChange} 
                   />
                 </div>
-              </div>
+              </>
             )}
 
             {formData.property_type === 'Vacant Land' && (
-              <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-                <div>
-                  <label className="label"><span className="label-text">Lot Size (sqft)</span></label>
-                  <input 
-                    type="number" 
-                    name="lot_size_sqft" 
-                    placeholder="Lot Size" 
-                    className={`input input-sm input-bordered w-full ${formData.lot_size_sqft !== null ? 'input-success' : ''}`} 
-                    value={formData.lot_size_sqft !== null ? formData.lot_size_sqft.toString() : ''} 
-                    onChange={onInputChange} 
-                  />
-                </div>
+              <div className="md:col-span-1"> {/* Spans 1, but could be 2 if preferred */}
+                <label className="label"><span className="label-text">Lot Size (sqft)</span></label>
+                <input 
+                  type="number" 
+                  name="lot_size_sqft" 
+                  placeholder="Lot Size (sqft)" 
+                  className={`input input-sm input-bordered w-full ${formData.lot_size_sqft !== null ? 'input-success' : ''}`} 
+                  value={formData.lot_size_sqft !== null ? formData.lot_size_sqft.toString() : ''} 
+                  onChange={onInputChange} 
+                />
               </div>
             )}
+             {/* Spacer to fill grid if lot_size_sqft is shown and beds/baths etc are not, to maintain layout consistency */}
+            {formData.property_type === 'Vacant Land' && <div className="md:col-span-1"></div>}
+            {formData.property_type === 'Vacant Land' && <div className="md:col-span-1"></div>}
+            {formData.property_type === 'Vacant Land' && <div className="md:col-span-1"></div>}
 
-            <div>
-              <label className="label"><span className="label-text">Notes</span></label>
-              <textarea 
-                name="notes" 
-                placeholder="Additional notes..." 
-                className={`textarea textarea-sm textarea-bordered w-full h-24 ${formData.notes ? 'textarea-success' : ''}`} 
-                value={formData.notes || ''} 
-                onChange={onInputChange} 
-              />
-            </div>
+
+            {/* End of Location Grid */}
           </div>
 
-          {/* StreetView Container */}
-          {streetViewLoaded && panoramaPosition && (
-            <div className="mt-4 h-64 w-full">
-              <div 
-                id="street-view" 
-                className="h-full w-full rounded-lg border border-gray-200"
-                ref={(ref) => {
-                  if (ref && !ref.hasChildNodes() && panoramaPosition) {
-                    new google.maps.StreetViewPanorama(ref, {
-                      position: panoramaPosition,
-                      pov: { heading: 165, pitch: 0 },
-                      zoom: 1
-                    });
-                  }
-                }}
-              />
+          {/* Notes (Full Width - Placed after Contact and Location sections) */}
+          <div> {/* No col-span needed as it's outside the grid, will take full width of flex column */}
+            <label className="label"><span className="label-text">Notes</span></label>
+            <textarea 
+              name="notes" 
+              placeholder="Additional notes..." 
+              className={`textarea textarea-sm textarea-bordered w-full h-24 ${formData.notes ? 'textarea-success' : ''}`} 
+              value={formData.notes || ''} 
+              onChange={onInputChange} 
+            />
+          </div>
+          
+          <div className="modal-action mt-6 grid grid-cols-3 gap-2 w-full items-center">
+            <div className="justify-self-start">
+              {isEditMode && onDelete && lead && lead.id && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary" // Changed style to btn-secondary and added btn-sm
+                  onClick={async () => {
+                    if (window.confirm('Are you sure you want to delete this lead?')) {
+                      await onDelete(lead.id);
+                    }
+                  }}
+                >
+                  DELETE LEAD
+                </button>
+              )}
             </div>
-          )}
-
-          <div className="modal-action">
-            <button 
-              type="button" 
-              className="btn btn-ghost"
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button 
-              type="submit" 
-              className="btn btn-primary"
-            >
-              {lead ? 'Update Lead' : 'Add Lead'}
-            </button>
+            <div className="justify-self-center">
+              <button 
+                type="button" 
+                className="btn btn-sm btn-ghost" // Added btn-sm
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="justify-self-end">
+              <button 
+                type="submit" 
+                className="btn btn-sm btn-primary" // Added btn-sm
+              >
+                {isEditMode ? 'UPDATE LEAD' : 'ADD LEAD'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

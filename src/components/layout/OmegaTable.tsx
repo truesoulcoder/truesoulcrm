@@ -1,6 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { LeadFormModal } from '@/components/leads/LeadFormModal';
+import type { LeadFormData } from '@/components/leads/LeadFormModal'; // Import LeadFormData
+import { createCrmLeadAction, updateCrmLeadAction, deleteCrmLeadAction } from '@/app/crm/actions';
+import type { Database } from '@/db_types';
 
 type DataRow = Record<string, unknown> & { id: string };
+
+// Define a basic Lead interface (can be expanded later)
+interface Lead { // This is for selectedLead, which might come from DataRow initially
+  id: string;
+  contact_name?: string; // Changed back from first_name/last_name
+  email?: string;
+  phone?: string;
+  status?: string; // Already present
+  street_address?: string; // Kept, as it's a form field, though not directly on DB lead
+  // Add other relevant lead fields here, matching DataRow or crm_leads structure
+  property_address?: string;
+  property_city?: string;
+  property_state?: string;
+  property_postal_code?: string;
+  contact_type?: string;
+  assessed_total?: number | null;
+  property_type?: string;
+  square_footage?: number | null;
+  beds?: number | null;
+  baths?: number | null;
+  year_built?: number | null;
+  lot_size_sqft?: number | null;
+  notes?: string;
+}
 
 interface OmegaTableProps {
   data?: DataRow[];
@@ -24,6 +52,12 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
   const [sortKey, setSortKey] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Modal and selection states
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [selectedLead, setSelectedLead] = useState<Partial<Lead> | null>(null);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
   // Filter and sort data
   const filteredData = useMemo(() => {
@@ -53,6 +87,19 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
     const end = start + rowsPerPage;
     return sortedData.slice(start, end);
   }, [sortedData, currentPage, rowsPerPage]);
+  
+  // Update header checkbox indeterminate state
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      const safeCurrentRows = currentRows || []; // Defensive guard
+      const numSelectedCurrentRows = safeCurrentRows.filter(row => selectedRows.includes(row.id)).length;
+      if (numSelectedCurrentRows > 0 && numSelectedCurrentRows < safeCurrentRows.length) {
+        headerCheckboxRef.current.indeterminate = true;
+      } else {
+        headerCheckboxRef.current.indeterminate = false;
+      }
+    }
+  }, [selectedRows, currentRows]);
 
   const totalPages = Math.ceil(sortedData.length / rowsPerPage);
 
@@ -80,6 +127,97 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
       .filter(key => key !== 'id')
       .map(key => ({ key, label: key.replace(/_/g, ' ').toUpperCase(), sortable: true }));
   }, [data]);
+
+  // Modal submit handler
+  const handleModalSubmit = async (
+    submittedLeadData: LeadFormData // Use imported LeadFormData type
+  ) => {
+    const currentMarketFilter = marketFilter; 
+
+    if (!currentMarketFilter || currentMarketFilter === 'all') {
+      console.error("Cannot submit lead: Market region is not specified. Please select a specific market from the table filter.");
+      // Optionally, show a user-facing error message here
+      return;
+    }
+
+    // Construct leadDataForAction, ensuring it aligns with what server actions expect.
+    // Server actions currently expect CrmLead type which might not have all LeadFormData fields directly.
+    // For now, pass all fields from submittedLeadData; server actions will pick what they need.
+    // `contact_name` is removed from LeadFormData, so it won't be here.
+    // New fields like first_name, last_name, status, street_address are now part of submittedLeadData.
+    const leadDataForAction = { 
+      ...submittedLeadData, // Spread all fields from the form
+      market_region: currentMarketFilter,
+      // Ensure numeric fields are correctly passed as numbers if actions expect them so.
+      // LeadFormModal's onInputChange already converts these to numbers or null.
+      assessed_total: submittedLeadData.assessed_total,
+      square_footage: submittedLeadData.square_footage,
+      beds: submittedLeadData.beds,
+      baths: submittedLeadData.baths,
+      year_built: submittedLeadData.year_built,
+      lot_size_sqft: submittedLeadData.lot_size_sqft,
+    };
+    
+    // Remove street_address if it's empty and not desired on the backend explicitly
+    // For now, we pass it as is. The backend action should handle it.
+    // if (leadDataForAction.street_address === '') {
+    //   delete leadDataForAction.street_address;
+    // }
+
+
+    let response;
+    if (selectedLead && selectedLead.id) {
+      // Update existing lead
+      response = await updateCrmLeadAction(Number(selectedLead.id), leadDataForAction);
+    } else {
+      // Create new lead
+      response = await createCrmLeadAction(leadDataForAction);
+    }
+
+    if (response.success) {
+      setIsModalOpen(false);
+      console.log(response.message || (selectedLead?.id ? 'Lead updated successfully.' : 'Lead created successfully.'));
+      // Data revalidation is handled by server action's revalidatePath
+    } else {
+      console.error('Failed to submit lead:', response.error);
+      // Optionally, show a user-facing error message here
+      // Modal remains open for corrections
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string | number) => {
+    if (!selectedLead || !selectedLead.id) { // Safety check
+      console.error("No lead selected for deletion or lead ID is missing.");
+      return;
+    }
+
+    const currentMarketFilter = marketFilter; // Use the marketFilter state from component scope
+
+    if (!currentMarketFilter || currentMarketFilter === 'all') {
+      console.error("Cannot delete lead: Market region is not specified. Please select a specific market from the table filter.");
+      // Optionally, show a user-facing error message here.
+      // Consider if the modal should stay open or close if this error occurs.
+      // For now, we'll prevent the action and the modal will remain as is.
+      return;
+    }
+
+    const response = await deleteCrmLeadAction({ 
+      leadId: Number(leadId), 
+      marketRegion: currentMarketFilter 
+    });
+
+    if (response.success) {
+      console.log(response.message || `Lead deleted successfully from ${currentMarketFilter}.`);
+      setIsModalOpen(false);
+      setSelectedLead(null); // Clear selected lead
+      // Data revalidation is handled by server action's revalidatePath
+    } else {
+      console.error('Failed to delete lead:', response.error);
+      // Optionally, show a user-facing error message
+      // Modal could be kept open or closed based on UX decision
+      setIsModalOpen(false); // Close modal even on error for now
+    }
+  };
 
   return (
     <div className="p-4">
@@ -122,6 +260,17 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
             onChange={handleSearchChange}
           />
         </div>
+        <div>
+          <button 
+            className="btn btn-primary"
+            onClick={() => {
+              setSelectedLead(null);
+              setIsModalOpen(true);
+            }}
+          >
+            Add New Lead
+          </button>
+        </div>
       </div>
 
       {/* Loading & Error States */}
@@ -144,10 +293,26 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
       {!loading && !error && (
         <>
           <div className="overflow-x-auto">
-            <table className="table w-full">
+            <table className="table table-zebra w-full">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th className="w-12">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm checkbox-primary"
+                      ref={headerCheckboxRef}
+                      checked={currentRows.length > 0 && currentRows.every(row => selectedRows.includes(row.id))}
+                      onChange={(e) => {
+                        const currentIds = currentRows.map(r => r.id);
+                        if (e.target.checked) {
+                          setSelectedRows(prev => [...new Set([...prev, ...currentIds])]);
+                        } else {
+                          setSelectedRows(prev => prev.filter(id => !currentIds.includes(id)));
+                        }
+                      }}
+                    />
+                  </th>
+                  <th className="w-16">#</th>
                   {headers.map(header => (
                     <th 
                       key={header.key} 
@@ -164,10 +329,37 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
               </thead>
               <tbody>
                 {currentRows.map((row, index) => (
-                  <tr key={row.id}>
+                  <tr 
+                    key={`${row.id}-${index}`} // Append index to ensure key uniqueness
+                    className="hover" // Removed cursor-pointer from entire row if modal only opens on cell click
+                  >
+                    <td onClick={(e) => e.stopPropagation()}> {/* Stop propagation to prevent row click */}
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm checkbox-primary"
+                        checked={selectedRows.includes(row.id)}
+                        onChange={(e) => {
+                          // e.stopPropagation(); // Already handled by td onClick
+                          if (e.target.checked) {
+                            setSelectedRows(prev => [...prev, row.id]);
+                          } else {
+                            setSelectedRows(prev => prev.filter(id => id !== row.id));
+                          }
+                        }}
+                      />
+                    </td>
                     <td>{(currentPage - 1) * rowsPerPage + index + 1}</td>
                     {headers.map(header => (
-                      <td key={`${row.id}-${header.key}`}>{String(row[header.key] || '-')}</td>
+                      <td 
+                        key={`${row.id}-${header.key}`}
+                        onClick={() => { // Allow modal opening by clicking on other cells
+                           setSelectedLead(row as Partial<Lead>);
+                           setIsModalOpen(true);
+                        }}
+                        className="cursor-pointer"
+                      >
+                        {String(row[header.key] || '-')}
+                      </td>
                     ))}
                   </tr>
                 ))}
@@ -211,6 +403,16 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
           )}
         </>
       )}
+
+      <LeadFormModal
+        isOpen={isModalOpen}
+        lead={selectedLead as Partial<Database['public']['Tables']['crm_leads']['Row']>}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleModalSubmit}
+        onDelete={handleDeleteLead} // Pass the delete handler
+        isEditMode={!!(selectedLead && selectedLead.id)} // Pass isEditMode
+        isLoaded={true} // Assuming Google Maps API is handled internally or not critical for initial load
+      />
     </div>
   );
 };

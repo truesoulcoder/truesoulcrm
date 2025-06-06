@@ -55,6 +55,11 @@ export async function createCrmLeadAction(newLeadData: Partial<Omit<CrmLead, 'id
     // Insert with the next ID
     const insertData = {
       ...newLeadData,
+      first_name: newLeadData.first_name,
+      last_name: newLeadData.last_name,
+      status: newLeadData.status,
+      street_address: newLeadData.street_address,
+      // contact_name is no longer part of CrmLead, so it's not in newLeadData by type
       id: nextId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -105,12 +110,19 @@ export async function updateCrmLeadAction(leadId: number, updatedLeadData: Parti
   }
 
   try {
+    const dataToUpdate = {
+      ...updatedLeadData,
+      first_name: updatedLeadData.first_name,
+      last_name: updatedLeadData.last_name,
+      status: updatedLeadData.status,
+      street_address: updatedLeadData.street_address,
+      // contact_name is no longer part of CrmLead, so it's not in updatedLeadData by type
+      updated_at: new Date().toISOString()
+    };
+
     const { data, error } = await supabase
     .from(tableName as keyof Database['public']['Tables']) // Type assertion to handle dynamic table name
-    .update({
-      ...updatedLeadData,
-      updated_at: new Date().toISOString()
-    })
+    .update(dataToUpdate)
     .eq('id', leadId)
     .select()
     .single();
@@ -133,30 +145,38 @@ export async function updateCrmLeadAction(leadId: number, updatedLeadData: Parti
 }
 
 // Action to DELETE a CRM lead
-export async function deleteCrmLeadAction(leadId: number): Promise<ServerActionResponse<null>> {
+export async function deleteCrmLeadAction({ leadId, marketRegion }: { leadId: number; marketRegion: string }): Promise<ServerActionResponse<null>> {
   const supabase = createClient();
-  console.log('Server Action deleteCrmLeadAction called for ID:', leadId);
+  console.log(`Server Action deleteCrmLeadAction called for ID: ${leadId} in market: ${marketRegion}`);
 
   if (!leadId) {
     return { success: false, error: 'Lead ID is required for deletion.' };
   }
 
+  if (!marketRegion) {
+    return { success: false, error: 'Market region is required for deletion.' };
+  }
+
+  const tableName = getLeadsTableName(marketRegion);
+
   try {
-    const { error } = await supabase
-      .from('crm_leads')
+    // Use type assertion to handle dynamic table name
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+    const { error } = await (supabase as any)
+      .from(tableName)
       .delete()
       .eq('id', leadId);
 
     if (error) {
-      console.error('Error deleting CRM lead:', error);
+      console.error(`Error deleting lead in ${tableName}:`, error);
       return { success: false, error: error.message };
     }
 
-    revalidatePath('/crm'); // Revalidate the CRM page
-    return { success: true, message: 'Lead deleted successfully.' };
+    revalidatePath('/crm'); // Revalidate the CRM page (or specific market page if possible)
+    return { success: true, message: `Lead deleted successfully from ${tableName}.` };
 
   } catch (e: any) {
-    console.error('Exception in deleteCrmLeadAction:', e);
+    console.error(`Exception in deleteCrmLeadAction for table ${tableName}:`, e);
     return { success: false, error: e.message || 'An unexpected error occurred.' };
   }
 }

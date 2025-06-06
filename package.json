@@ -45,6 +45,7 @@
     "react-transition-group": "^4.4.5",
     "recharts": "^2.15.3",
     "rimraf": "^5.0.5",
+    "supabase": "^2.24.3",
     "typescript-eslint": "^8.32.1",
     "uuid": "^11.1.0",
     "vercel": "^41.7.8",

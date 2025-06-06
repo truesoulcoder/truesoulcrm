@@ -98,24 +98,44 @@ export default function CrmView() {
       if (marketFilter === 'all') {
         // Fetch all markets data
         const allResponses = await Promise.all(
-          availableMarkets.map(market => 
-            supabase
-              .from(`${market.normalized_name}_fine_cut_leads`)
-              .select('*')
-          )
+          availableMarkets.map(market => {
+            if (!market.associated_leads_table) {
+              console.warn(`Skipping market ${market.name} in 'All Markets' fetch due to missing associated_leads_table.`);
+              return Promise.resolve({ data: [], error: null }); // Return a resolved promise with empty data
+            }
+            return supabase
+              .from(market.associated_leads_table) // Use the exact table name
+              .select('*');
+          })
         );
         
-        // Combine results
-        result = allResponses.flatMap(res => res.data || []);
+        // Combine results, filtering out any null/error responses if necessary (though Promise.resolve handles errors gracefully for flatMap)
+        result = allResponses.reduce((acc, res) => {
+          if (res.error) {
+            console.error(`Error fetching data for a market during 'All Markets' fetch:`, res.error);
+            // Optionally, collect these errors to display a partial error message
+          }
+          if (res.data) {
+            acc.push(...res.data);
+          }
+          return acc;
+        }, [] as CrmLead[]);
+
       } else {
         // Fetch specific market data
-        const { data, error } = await supabase
-          .from(`${marketFilter}_fine_cut_leads`)
-          .select('*')
-          .eq('market_region', marketFilter);
-        
-        if (error) throw error;
-        result = data;
+        const selectedMarket = availableMarkets.find(market => market.name === marketFilter);
+
+        if (selectedMarket && selectedMarket.associated_leads_table) {
+          const { data, error } = await supabase
+            .from(selectedMarket.associated_leads_table) // Use the exact table name
+            .select('*');
+          
+          if (error) throw error;
+          result = data;
+        } else {
+          console.error(`Market details or associated_leads_table not found for: ${marketFilter}`);
+          result = []; // Set to empty array if market details are not found
+        }
       }
       
       setLeads(result || []);
