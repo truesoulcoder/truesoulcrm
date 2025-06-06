@@ -1,26 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 
-import { Background } from '@/components/ui/once-ui/components/Background';
 import { supabase } from '@/lib/supabase/client';
 
 
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [mousePosition, setMousePosition] = useState({ x: 50, y: 0 });
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-      setMousePosition({ x, y });
-    }
-  };
 
   useEffect(() => {
     // If user is already logged in, redirect to dashboard
@@ -57,38 +45,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div 
-      ref={containerRef}
-      onMouseMove={handleMouseMove}
-      className="min-h-screen flex items-center justify-center relative overflow-hidden"
-    >
-      <Background
-        fill
-        height={16}
-        gradient={{ 
-          display: true, 
-          opacity: 1,
-          x: mousePosition.x,
-          y: mousePosition.y,
-          colorStart: 'hsl(var(--a))', // Using accent color
-          colorEnd: 'transparent'
-        }}
-        lines={{
-          display: true,
-          opacity: 0.1,
-          size: 16,
-          thickness: 1,
-          angle: 90,
-          color: 'hsl(var(--a))' // Using accent color
-        }}
-        mask={{
-          x: mousePosition.x,
-          y: mousePosition.y,
-          radius: 50
-        }}
-        className="absolute inset-0 -z-10"
-      />
-      
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
       <div className="card w-96 bg-base-100/80 backdrop-blur-sm shadow-xl border border-base-200">
         <div className="card-body items-center text-center p-10">
           {/* Logo */}

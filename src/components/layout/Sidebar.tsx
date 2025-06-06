@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState } from 'react';
 
-import { LetterFx } from '@/components/ui/once-ui/components';
+import { LetterFx } from '@/components/ui/LetterFx';
 import { useUser } from '@/contexts/UserContext'; // Added UserContext import
 
 
@@ -40,9 +40,9 @@ const menuItems: MenuItem[] = [
 const Sidebar: React.FC = () => {
   const { role, isLoading: userLoading, user } = useUser(); // Get role and loading state
   // TODO: Replace this with actual logic to fetch/get companyLogoUrl from settings
-  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+  const [companyLogoUrl] = useState<string | null>(null);
   // TODO: Replace this with actual logic to fetch/get companyName from settings
-  const [companyName, setCompanyName] = useState<string | null>(null);
+  const [companyName] = useState<string | null>(null);
 
   // Example: Fetch settings on component mount (you'll need to adapt this)
   // useEffect(() => {
