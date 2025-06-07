@@ -58,25 +58,47 @@ export async function GET(request: NextRequest) {
     //   return NextResponse.json({ error: 'User not authenticated.' }, { status: 401 });
     // }
 
-    const { data: marketRegions, error } = await supabase
-      .from('market_regions')
-      .select('id, name, normalized_name, lead_count') // Selected fields
-      .order('name', { ascending: true }); // Optional: order by name
+    // Query the 'properties' table for 'market_region'
+    const { data, error } = await supabase
+      .from('properties')
+      .select('market_region');
 
     if (error) {
-      console.error('Supabase error fetching market regions:', error);
+      console.error('Supabase error fetching market regions from properties table:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       return NextResponse.json({ error: `Error fetching market regions: ${errorMessage}` }, { status: 500 });
     }
 
-    if (!marketRegions || marketRegions.length === 0) {
+    if (!data || data.length === 0) {
+      // This means the properties table is empty or all market_region fields are null
+      console.log('No market regions found in properties table.');
       return NextResponse.json({ error: 'No market regions found.' }, { status: 404 });
     }
 
-    return NextResponse.json(marketRegions, { status: 200 });
+    // Process data to get unique region names
+    const uniqueRegionNames = Array.from(
+      new Set(
+        data
+          .map(item => item.market_region)
+          .filter(region => region !== null && region !== undefined && region.trim() !== '')
+      )
+    );
+
+    if (uniqueRegionNames.length === 0) {
+      // This means all market_region fields were null, undefined, or empty strings
+      console.log('No valid market regions found after filtering.');
+      return NextResponse.json({ error: 'No valid market regions found.' }, { status: 404 });
+    }
+
+    // Format the response and sort alphabetically
+    const formattedResponse = uniqueRegionNames
+      .map(name => ({ name: name as string })) // Ensure name is string
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return NextResponse.json(formattedResponse, { status: 200 });
 
   } catch (e: unknown) { // Catch error as unknown for type safety
-    console.error('Error in /api/market-regions GET handler:', e);
+    console.error('Error in /api/market-regions GET handler (new logic):', e);
     const message = e instanceof Error ? e.message : 'An unexpected error occurred.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

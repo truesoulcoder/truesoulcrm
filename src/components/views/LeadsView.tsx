@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle, Info, XCircle } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid'; 
 
-import LeadUploader from '@/components/leads/LeadUploader';
+import LeadUploaderNew from '@/components/leads/LeadUploader';
 
 import type { Database } from '@/db_types';
 
@@ -72,7 +72,7 @@ const LeadsView: React.FC = () => {
     <div className="container mx-auto px-0 max-w-full">
       <div className="px-4">
         <div className="mb-8 max-w-full overflow-x-hidden">
-          <LeadUploader 
+          <LeadUploaderNew 
             onUploadSuccess={handleUploadSuccess} 
             addMessage={handleAddMessage} 
             isProcessing={isProcessingLeads} 

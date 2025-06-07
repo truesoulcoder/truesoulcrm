@@ -1,32 +1,43 @@
+// src/app/api/engine/email-metrics/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-
 import { createAdminServerClient } from '@/lib/supabase/server';
+import { Database } from '@/db_types';
 
-type EmailStatus = 'sent' | 'delivered' | 'bounced' | 'opened' | 'clicked' | 'replied';
-type TimeRange = '24h' | '7d' | '30d';
+type EmailStatus = 'sent' | 'delivered' | 'bounced' | 'opened' | 'clicked' | 'replied' | 'failed';
+type TimeRange = '24h' | '7d' | '30d' | 'all'; // Added 'all' for fetching all logs
 
-interface EmailMetric {
-  sender_email_used: string | null;
-  sender_name: string | null;
-  email_status: string | null;
-  count: number;
+interface RawLogDetail {
+  status?: EmailStatus; // Status of the email attempt itself, e.g., 'sent', 'failed'
+  email_event_type?: EmailStatus; // For specific events like 'opened', 'clicked' if logged this way
+  sender_email_used?: string;
+  sender_name?: string;
+  // Other potential fields in details: error, messageId etc.
+}
+
+interface ProcessedEvent {
+  sender_email_used: string;
+  sender_name: string;
+  status: EmailStatus; // The primary status for this event
+  created_at_date: string; // 'YYYY-MM-DD'
 }
 
 interface MetricTotals {
-  sent: number;
+  sent: number; // Total attempts or successful sends
   delivered: number;
   bounced: number;
   opened: number;
   clicked: number;
   replied: number;
+  failed: number; // Explicitly track failures
 }
 
 interface MetricRates {
-  delivery: number;
-  bounce: number;
-  open: number;
-  click: number;
-  reply: number;
+  delivery_rate: number; // (delivered / sent) * 100
+  bounce_rate: number;   // (bounced / sent) * 100
+  open_rate: number;     // (opened / delivered) * 100
+  click_rate: number;    // (clicked / delivered) * 100
+  reply_rate: number;    // (replied / delivered) * 100
+  failure_rate: number;  // (failed / sent) * 100
 }
 
 interface SenderMetrics extends MetricTotals {
@@ -37,11 +48,22 @@ interface SenderMetrics extends MetricTotals {
   openRate: number;
   clickRate: number;
   replyRate: number;
+  failureRate: number;
+}
+
+interface TimeSeriesDataPoint {
+  date_group: string; // 'YYYY-MM-DD'
+  sent: number;
+  delivered: number;
+  bounced: number;
+  opened: number;
+  clicked: number;
+  replied: number;
+  failed: number;
 }
 
 class EmailMetricsError extends Error {
   status: number;
-
   constructor(message: string, status: number = 500) {
     super(message);
     this.name = 'EmailMetricsError';
@@ -49,194 +71,204 @@ class EmailMetricsError extends Error {
   }
 }
 
-const isValidEmailStatus = (status: string | null): status is EmailStatus => {
-  return [
-    'sent', 'delivered', 'bounced', 
-    'opened', 'clicked', 'replied'
-  ].includes(status || '');
-};
+const ALL_EMAIL_STATUSES: EmailStatus[] = ['sent', 'delivered', 'bounced', 'opened', 'clicked', 'replied', 'failed'];
 
-const calculateTotals = (metrics: EmailMetric[]): MetricTotals => {
-  const totals: MetricTotals = { 
-    sent: 0, 
-    delivered: 0, 
-    bounced: 0, 
-    opened: 0, 
-    clicked: 0, 
-    replied: 0 
-  };
+function initializeMetricTotals(): MetricTotals {
+  return { sent: 0, delivered: 0, bounced: 0, opened: 0, clicked: 0, replied: 0, failed: 0 };
+}
 
-  for (const metric of metrics) {
-    const status = metric.email_status?.toLowerCase();
-    const count = metric.count || 0;
-    
-    if (status && isValidEmailStatus(status)) {
-      totals[status] = (totals[status] || 0) + count;
+const calculateTotals = (events: ProcessedEvent[]): MetricTotals => {
+  const totals = initializeMetricTotals();
+  for (const event of events) {
+    if (ALL_EMAIL_STATUSES.includes(event.status)) {
+      totals[event.status]++;
     }
-    totals.sent += count;
+    // Define what 'sent' means. If 'sent' is a specific status, it's counted above.
+    // If 'sent' means any attempt, you might sum 'sent' + 'failed' + 'bounced' (if bounced is not part of sent)
+    // For this refactor, assume 'sent' is a distinct status logged in details.
+    // If not, this logic needs adjustment. Example: if all logs are attempts, then totals.sent = events.length;
   }
+  // If 'sent' is not explicitly logged as a status for every attempt, but 'failed' and other success/intermediate statuses are:
+  // totals.sent = totals.delivered + totals.bounced + totals.opened + totals.clicked + totals.replied + totals.failed; (Adjust based on actual logged statuses)
 
+  // For now, let's assume 'sent' is a status like others. If a job log represents an *attempt* that resulted in 'sent' or 'failed',
+  // then 'sent' should be the sum of successful sends.
+  // If job_logs.details.status = 'sent' means a successful send:
+  // totals.sent is already correctly counted.
+  // If job_logs.details.status can be 'failed', then true "attempts" might be totals.sent + totals.failed.
+  // Let's assume 'sent' in totals means successfully sent, and 'failed' means failed attempts.
+  // The 'sent' count for rate calculation should be the base number of emails actually dispatched or attempted.
+  // If a log with status 'sent' means it was successfully dispatched, that's our base for delivery rate.
   return totals;
 };
 
-const calculateRates = (totals: MetricTotals): MetricRates => ({
-  delivery: totals.sent > 0 ? Number(((totals.delivered / totals.sent) * 100).toFixed(2)) : 0,
-  bounce: totals.sent > 0 ? Number(((totals.bounced / totals.sent) * 100).toFixed(2)) : 0,
-  open: totals.delivered > 0 ? Number(((totals.opened / totals.delivered) * 100).toFixed(2)) : 0,
-  click: totals.delivered > 0 ? Number(((totals.clicked / totals.delivered) * 100).toFixed(2)) : 0,
-  reply: totals.delivered > 0 ? Number(((totals.replied / totals.delivered) * 100).toFixed(2)) : 0
-});
+const calculateRates = (totals: MetricTotals): MetricRates => {
+  const baseSentForDelivery = totals.sent; // Emails successfully dispatched
+  const baseDelivered = totals.delivered;   // Emails confirmed delivered
 
-const processSenderMetrics = (metrics: EmailMetric[]): SenderMetrics[] => {
-  const senderMap = new Map<string, SenderMetrics>();
+  return {
+    delivery_rate: baseSentForDelivery > 0 ? Number(((totals.delivered / baseSentForDelivery) * 100).toFixed(2)) : 0,
+    bounce_rate: baseSentForDelivery > 0 ? Number(((totals.bounced / baseSentForDelivery) * 100).toFixed(2)) : 0,
+    open_rate: baseDelivered > 0 ? Number(((totals.opened / baseDelivered) * 100).toFixed(2)) : 0,
+    click_rate: baseDelivered > 0 ? Number(((totals.clicked / baseDelivered) * 100).toFixed(2)) : 0,
+    reply_rate: baseDelivered > 0 ? Number(((totals.replied / baseDelivered) * 100).toFixed(2)) : 0,
+    failure_rate: (baseSentForDelivery + totals.failed) > 0 ? Number(((totals.failed / (baseSentForDelivery + totals.failed)) * 100).toFixed(2)) : 0, // Failed out of total attempts
+  };
+};
 
-  for (const metric of metrics) {
-    const email = metric.sender_email_used || 'unknown@example.com';
-    const status = metric.email_status?.toLowerCase();
-    const count = metric.count || 0;
+const processSenderMetrics = (events: ProcessedEvent[]): SenderMetrics[] => {
+  const senderMap = new Map<string, MetricTotals & { name: string }>();
 
-    let sender = senderMap.get(email);
-    if (!sender) {
-      sender = {
-        email,
-        name: metric.sender_name || email.split('@')[0],
-        sent: 0, 
-        delivered: 0, 
-        bounced: 0,
-        opened: 0, 
-        clicked: 0, 
-        replied: 0,
-        deliveryRate: 0, 
-        bounceRate: 0, 
-        openRate: 0,
-        clickRate: 0, 
-        replyRate: 0
-      };
-      senderMap.set(email, sender);
+  for (const event of events) {
+    const email = event.sender_email_used || 'unknown_sender';
+    let senderData = senderMap.get(email);
+    if (!senderData) {
+      senderData = { ...initializeMetricTotals(), name: event.sender_name || email.split('@')[0] };
+      senderMap.set(email, senderData);
     }
-
-    if (status && isValidEmailStatus(status)) {
-      sender[status] = (sender[status] || 0) + count;
+    if (ALL_EMAIL_STATUSES.includes(event.status)) {
+      senderData[event.status]++;
     }
-    sender.sent += count;
   }
 
-  return Array.from(senderMap.values()).map(sender => {
-    const { sent, delivered, bounced, opened, clicked, replied } = sender;
-    const rates = calculateRates({ sent, delivered, bounced, opened, clicked, replied });
-    
+  return Array.from(senderMap.entries()).map(([email, totals]) => {
+    const rates = calculateRates(totals);
     return {
-      ...sender,
-      ...rates,
-      deliveryRate: rates.delivery,
-      bounceRate: rates.bounce,
-      openRate: rates.open,
-      clickRate: rates.click,
-      replyRate: rates.reply
+      email,
+      name: totals.name,
+      ...totals,
+      deliveryRate: rates.delivery_rate,
+      bounceRate: rates.bounce_rate,
+      openRate: rates.open_rate,
+      clickRate: rates.click_rate,
+      replyRate: rates.reply_rate,
+      failureRate: rates.failure_rate,
     };
   });
 };
 
-const getDateRange = (timeRange: TimeRange): Date => {
+const getStartDateFromRange = (timeRange: TimeRange): Date | null => {
+  if (timeRange === 'all') return null; // For fetching all logs
   const date = new Date();
   const days = timeRange === '24h' ? 1 : timeRange === '30d' ? 30 : 7;
   date.setDate(date.getDate() - days);
+  date.setHours(0, 0, 0, 0); // Start of the day
   return date;
 };
 
-export async function GET(request: NextRequest) {
-  // Extract query parameters from the URL
-  const searchParams = request.nextUrl.searchParams;
-  const timeRange = searchParams.get('timeRange') || '7d';
+const generateTimeSeriesDataFromLogs = (
+  logs: Database['public']['Tables']['job_logs']['Row'][],
+  timeRange: TimeRange,
+  endDate: Date = new Date()
+): TimeSeriesDataPoint[] => {
+  const seriesData: TimeSeriesDataPoint[] = [];
+  const dailyAggregates: Map<string, MetricTotals> = new Map();
+
+  const actualStartDate = getStartDateFromRange(timeRange);
   
-  try {
-    const startDate = getDateRange(timeRange as TimeRange);
-    const supabase = await createAdminServerClient();
+  // Filter logs by actualStartDate if not 'all' timeRange
+  const filteredLogs = actualStartDate 
+    ? logs.filter(log => new Date(log.created_at) >= actualStartDate)
+    : logs;
 
-    try {
-      // Get the Supabase client instance
-      const client = supabase;
+  for (const log of filteredLogs) {
+    const details = log.details as RawLogDetail | null;
+    const status = details?.status || details?.email_event_type; // Prefer 'status' for send attempt, fallback to 'email_event_type'
+    
+    if (status && ALL_EMAIL_STATUSES.includes(status)) {
+      const dateKey = new Date(log.created_at).toISOString().split('T')[0]; // 'YYYY-MM-DD'
       
-      // Fetch metrics by sender and status
-      const { data: metricsData, error: metricsError } = await client
-        .from('engine_log')
-        .select('sender_email_used, sender_name, email_status, count(*)', { 
-          count: 'exact',
-          head: false 
-        })
-        .gte('created_at', startDate.toISOString());
-
-      if (metricsError) {
-        throw new EmailMetricsError(`Error fetching email metrics: ${metricsError.message}`, 500);
+      let dayEntry = dailyAggregates.get(dateKey);
+      if (!dayEntry) {
+        dayEntry = initializeMetricTotals();
+        dailyAggregates.set(dateKey, dayEntry);
       }
-
-      // Fetch time series data (daily counts)
-      const { data: timeSeriesData, error: timeSeriesError } = await client.rpc(
-        'get_email_metrics_time_series',
-        { start_date: startDate.toISOString() }
-      );
-
-      if (timeSeriesError) {
-        throw new EmailMetricsError(`Error fetching time series data: ${timeSeriesError.message}`, 500);
-      }
-
-      // Process the metrics data
-      if (!metricsData || !Array.isArray(metricsData)) {
-        throw new EmailMetricsError('Invalid metrics data received', 500);
-      }
-            
-      // Update the filter to handle both EmailMetric and ParserError types
-      const metrics = metricsData.filter((item: unknown): item is EmailMetric => {
-        if (typeof item !== 'object' || item === null) return false;
-        if ('error' in item) return false; // Skip ParserError objects
-        
-        const metric = item as Record<string, unknown>;
-        return (
-          typeof metric.sender_email_used === 'string' &&
-          typeof metric.sender_name === 'string' &&
-          typeof metric.email_status === 'string' &&
-          typeof metric.count === 'number'
-        );
-      });
-      
-      if (metrics.length === 0) {
-        throw new EmailMetricsError('No valid email metrics found', 404);
-      }
-      const validMetrics = metrics.filter(metric => !('error' in metric));
-      if (validMetrics.length === 0) {
-        throw new EmailMetricsError('No valid email metrics found', 404);
-      }
-      
-      const totals = calculateTotals(validMetrics);
-      const rates = calculateRates(totals);
-      const bySender = processSenderMetrics(validMetrics);
-
-      // Return the processed data
-      return NextResponse.json({
-        success: true,
-        data: {
-          totals,
-          rates,
-          bySender,
-          timeSeries: timeSeriesData || []
-        }
-      });
-    } catch (error) {
-      if (error instanceof EmailMetricsError) {
-        return NextResponse.json(
-          { success: false, error: error.message },
-          { status: error.status }
-        );
-      }
-      
-      console.error('Unexpected error in email-metrics:', error);
-      return NextResponse.json(
-        { success: false, error: 'An unexpected error occurred while fetching email metrics.' },
-        { status: 500 }
-      );
+      dayEntry[status]++;
     }
-  } catch (error) {
+  }
+
+  // Determine the true start date for generating the series (earliest log or calculated start date)
+  let seriesStartDate = actualStartDate;
+  if (timeRange === 'all' && filteredLogs.length > 0) {
+      const earliestLogDate = new Date(filteredLogs.reduce((min, log) => 
+          new Date(log.created_at) < new Date(min) ? log.created_at : min, filteredLogs[0].created_at
+      ));
+      earliestLogDate.setHours(0,0,0,0);
+      seriesStartDate = earliestLogDate;
+  }
+  if (!seriesStartDate) seriesStartDate = new Date(endDate); // Should have a start date by now
+
+  // Generate date series and populate with data
+  let currentDate = new Date(seriesStartDate);
+  endDate.setHours(0,0,0,0);
+
+  while (currentDate <= endDate) {
+    const dateKey = currentDate.toISOString().split('T')[0];
+    const totalsForDay = dailyAggregates.get(dateKey) || initializeMetricTotals();
+    seriesData.push({
+      date_group: dateKey,
+      ...totalsForDay,
+    });
+    currentDate.setDate(currentDate.getDate() + 1); // Increment by one day
+  }
+  return seriesData.sort((a,b) => new Date(a.date_group).getTime() - new Date(b.date_group).getTime());
+};
+
+
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const timeRange = (searchParams.get('timeRange') as TimeRange) || '7d';
+  const supabase = createAdminServerClient<Database>();
+
+  try {
+    const startDateForOverallMetrics = getStartDateFromRange(timeRange); // For totals and bySender
+    
+    // Fetch all logs for the relevant period for overall/bySender, and potentially wider for timeSeries if 'all'
+    let query = supabase.from('job_logs').select('details, created_at');
+    if (startDateForOverallMetrics) { // Not 'all'
+      query = query.gte('created_at', startDateForOverallMetrics.toISOString());
+    }
+    
+    const { data: rawLogs, error: fetchError } = await query;
+
+    if (fetchError) {
+      throw new EmailMetricsError(`Error fetching job logs: ${fetchError.message}`, 500);
+    }
+    if (!rawLogs) {
+      throw new EmailMetricsError('No job logs data received', 500);
+    }
+
+    const processedEvents: ProcessedEvent[] = rawLogs.map(log => {
+      const details = log.details as RawLogDetail | null;
+      // Prioritize 'status' from details (direct send attempt outcome), then 'email_event_type'
+      const eventStatus = details?.status || details?.email_event_type || 'failed'; // Default to 'failed' if no status
+      
+      return {
+        sender_email_used: details?.sender_email_used || 'Unknown Sender',
+        sender_name: details?.sender_name || (details?.sender_email_used?.split('@')[0] || 'Unknown'),
+        status: eventStatus,
+        created_at_date: new Date(log.created_at).toISOString().split('T')[0],
+      };
+    }).filter(event => ALL_EMAIL_STATUSES.includes(event.status)); // Ensure status is one we track
+
+    const totals = calculateTotals(processedEvents);
+    const rates = calculateRates(totals);
+    const bySender = processSenderMetrics(processedEvents);
+    
+    // For time series, we use all rawLogs fetched (which could be 'all' or limited by timeRange)
+    // The generateTimeSeriesDataFromLogs function will handle date iteration based on timeRange
+    const timeSeriesData = generateTimeSeriesDataFromLogs(rawLogs, timeRange);
+
+    return NextResponse.json({
+      success: true,
+      data: { totals, rates, bySender, timeSeries: timeSeriesData },
+    });
+
+  } catch (error: any) {
     console.error('Error in email-metrics route:', error);
+    if (error instanceof EmailMetricsError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }
