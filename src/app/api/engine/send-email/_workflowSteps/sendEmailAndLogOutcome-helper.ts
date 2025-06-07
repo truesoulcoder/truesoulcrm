@@ -1,4 +1,4 @@
-// src/app/api/engine/test-email/workflow/sendEmailAndLogOutcome-helper.ts
+// src/app/api/engine/send-email/workflow/sendEmailAndLogOutcome-helper.ts
 import { isValidEmail as validateEmailFromUtils } from '@/app/api/engine/_utils/_utils';
 import { logToSupabaseTable } from '@/app/api/engine/send-email/_workflowSteps/_utils'; // Adjusted path
 import { sendEmail as sendGmailService } from '@/services';

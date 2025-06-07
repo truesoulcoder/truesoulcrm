@@ -554,4 +554,4 @@ const LeadFormModal = ({
   );
 };
 
-export { LeadFormModal };
+export { LeadFormModal, LeadFormData };

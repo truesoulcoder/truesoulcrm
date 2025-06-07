@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { LeadFormModal } from '@/components/leads/LeadFormModal';
+import ColumnSelectorModal from './ColumnSelectorModal'; // Import ColumnSelectorModal
 import type { LeadFormData } from '@/components/leads/LeadFormModal'; // Import LeadFormData
 import { createCrmLeadAction, updateCrmLeadAction, deleteCrmLeadAction } from '@/app/crm/actions';
 import type { Database } from '@/db_types';
@@ -30,6 +31,10 @@ interface Lead { // This is for selectedLead, which might come from DataRow init
   notes?: string;
 }
 
+interface ColumnVisibility {
+  [key: string]: boolean;
+}
+
 interface OmegaTableProps {
   data?: DataRow[];
   loading?: boolean;
@@ -52,9 +57,11 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
   const [sortKey, setSortKey] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [searchTerm, setSearchTerm] = useState('');
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({});
 
   // Modal and selection states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isColumnSelectorModalOpen, setIsColumnSelectorModalOpen] = useState<boolean>(false); // State for column selector modal
   const [selectedLead, setSelectedLead] = useState<Partial<Lead> | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
@@ -101,6 +108,19 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
     }
   }, [selectedRows, currentRows]);
 
+  // Initialize column visibility
+  useEffect(() => {
+    if (data.length > 0 && Object.keys(columnVisibility).length === 0) {
+      const initialVisibility: ColumnVisibility = {};
+      Object.keys(data[0]).forEach(key => {
+        if (key !== 'id') { // Keep 'id' out of selectable columns
+          initialVisibility[key] = true;
+        }
+      });
+      setColumnVisibility(initialVisibility);
+    }
+  }, [data, columnVisibility]);
+
   const totalPages = Math.ceil(sortedData.length / rowsPerPage);
 
   // Handlers
@@ -124,9 +144,31 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
   const headers = useMemo(() => {
     if (data.length === 0) return [];
     return Object.keys(data[0])
-      .filter(key => key !== 'id')
+      .filter(key => key !== 'id' && columnVisibility[key]) // Filter by visibility
       .map(key => ({ key, label: key.replace(/_/g, ' ').toUpperCase(), sortable: true }));
+  }, [data, columnVisibility]); // Add columnVisibility to dependencies
+
+  // Prepare all columns for the selector modal
+  const allColumnsForSelector = useMemo(() => {
+    if (data.length === 0) return [];
+    return Object.keys(data[0])
+      .filter(key => key !== 'id')
+      .map(key => ({ key, label: key.replace(/_/g, ' ').toUpperCase() }));
   }, [data]);
+
+  // Handler for saving column visibility from modal
+  const handleSaveColumnVisibility = (newVisibility: ColumnVisibility) => {
+    setColumnVisibility(newVisibility);
+    console.log('[OmegaTable] Updated columnVisibility:', newVisibility); // Added console log
+    setIsColumnSelectorModalOpen(false); // Close modal on save
+  };
+
+  // Effect for logging allColumnsForSelector
+  useEffect(() => {
+    if (allColumnsForSelector.length > 0) {
+      console.log('[OmegaTable] allColumnsForSelector for modal (sample):', allColumnsForSelector.slice(0, 5));
+    }
+  }, [allColumnsForSelector]);
 
   // Modal submit handler
   const handleModalSubmit = async (
@@ -259,6 +301,12 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
             value={searchTerm}
             onChange={handleSearchChange}
           />
+          <button
+            className="btn btn-outline ml-2" // Added margin for spacing
+            onClick={() => setIsColumnSelectorModalOpen(true)}
+          >
+            Select Columns
+          </button>
         </div>
         <div>
           <button 
@@ -412,6 +460,14 @@ const OmegaTable: React.FC<OmegaTableProps> = ({
         onDelete={handleDeleteLead} // Pass the delete handler
         isEditMode={!!(selectedLead && selectedLead.id)} // Pass isEditMode
         isLoaded={true} // Assuming Google Maps API is handled internally or not critical for initial load
+      />
+
+      <ColumnSelectorModal
+        isOpen={isColumnSelectorModalOpen}
+        onClose={() => setIsColumnSelectorModalOpen(false)}
+        allColumns={allColumnsForSelector}
+        currentVisibility={columnVisibility}
+        onSave={handleSaveColumnVisibility}
       />
     </div>
   );

@@ -1,957 +1,146 @@
 'use client';
 
-import { PlayCircle, StopCircle, Mail, AlertTriangle, Info, CheckCircle, RefreshCw, MapPin } from 'lucide-react';
-import React, { useState, useEffect, useCallback, useRef, JSX } from 'react';
-import { supabase } from '@/lib/supabase/client';
-import { Database } from '@/types/supabase';
-import TimePicker from '@/components/ui/TimePicker'; // Added import for TimePicker
+import React, { useState, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsContent } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useEngineControl } from '@/hooks/useEngineControl';
 
-const MAX_DISPLAY_LOGS = 10;
-
-// Assuming engine_log is the primary source of real-time messages for now
-type EngineLogEntry = Database['public']['Tables']['engine_log']['Row'];
-
+// LogEntry is now primarily defined in useEngineControl hook, but keeping type here for clarity if needed.
 interface LogEntry {
   id: string;
   timestamp: string;
   message: string;
-  type: 'info' | 'error' | 'success' | 'warning' | 'engine';
-  data?: Record<string, unknown>;
+  type: 'info' | 'error' | 'success' | 'warning';
+  data?: any;
 }
 
-interface EngineLogTablePayload {
-  id: number;
-  processed_at: string | null; // Changed from timestamp to processed_at
-  message: string;
-  type: LogEntry['type'];
-  log_level?: string; // Added log_level property
-  data?: Record<string, unknown>;
-}
+const EngineControlView = () => {
+  const {
+    campaigns,
+    status,
+    logs,
+    startCampaign,
+    stopCampaign,
+    resumeCampaign,
+    clearLogs,
+  } = useEngineControl();
 
-type EngineStatus = 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'test_sending';
+  const [activeTab, setActiveTab] = useState('engine');
+  const consoleEndRef = useRef<HTMLDivElement>(null);
 
-interface TestEmailResponse {
-  success: boolean;
-  messageId?: string; // send-email route returns messageId
-  message?: string; // General message, can be kept for broader compatibility or if send-email also returns it
-  error?: string;
-  // lead_id and subject are not directly returned by send-email, they are logged server-side
-}
-
-interface StartCampaignResponse {
-  success: boolean;
-  message?: string;
-  error?: string;
-  attempted?: number;
-  succeeded?: number;
-  failed?: number;
-  processing_errors?: string[];
-}
-
-interface ResumeCampaignResponse {
-  success: boolean;
-  message?: string;
-  error?: string; // Assuming error is a string, similar to other responses
-}
-
-interface StopCampaignResponse {
-  success: boolean;
-  message?: string;
-  error?: string;
-}
-
-interface MarketRegion {
-  id: string;
-  name: string;
-  normalized_name: string;
-  lead_count: number;
-}
-
-// Type for campaign dropdown
-type CampaignSelectItem = {
-  id: string; // uuid
-  name: string;
-};
-
-const EngineControlView: React.FC = (): JSX.Element => {
-  const [engineStatus, setEngineStatus] = useState<EngineStatus>('idle');
-  const [marketRegionsList, setMarketRegionsList] = useState<MarketRegion[]>([]);
-  const [selectedTestMarketRegion, setSelectedTestMarketRegion] = useState<string | undefined>('');
-  const [isLoadingMarketRegions, setIsLoadingMarketRegions] = useState<boolean>(true);
-  const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
-  const [logRenderKey, setLogRenderKey] = useState(0); // Add this line
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const consoleEndRef = useRef<null | HTMLDivElement>(null);
-
-  // State for campaign scheduler
-  const [allCampaigns, setAllCampaigns] = useState<CampaignSelectItem[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
-  const [selectedInterval, setSelectedInterval] = useState<string>('01:00:00'); // Default to 1 hour, e.g.
-  const [isScheduling, setIsScheduling] = useState<boolean>(false);
-
-  const [activeConsoleTab, setActiveConsoleTab] = useState<'system' | 'campaign'>('system');
-
-  const filteredLogs = consoleLogs.filter(log => {
-    if (activeConsoleTab === 'system') {
-      return log.type !== 'info' || log.message.includes('system') || log.message.includes('System');
-    } else {
-      return log.message.includes('Campaign') || log.message.includes('campaign') || log.message.includes('Job');
-    }
-  });
-
-  // Fetch campaigns for dropdown
-  useEffect(() => {
-    const fetchCampaigns = async () => {
-      setIsLoading(true);
-      addLog('info', 'Fetching campaigns for scheduler...');
-      const { data, error: campaignsError } = await supabase
-        .from('campaigns')
-        .select('id, name')
-        .order('name', { ascending: true });
-
-      if (campaignsError) {
-        console.error('Error fetching campaigns:', campaignsError);
-        addLog('error', `Error fetching campaigns: ${campaignsError.message}`);
-        setError('Failed to load campaigns.');
-      } else {
-        setAllCampaigns(data as CampaignSelectItem[]);
-        if (data.length > 0) {
-          setSelectedCampaignId(data[0].id); // Select the first campaign by default
-        }
-        addLog('success', `Successfully fetched ${data.length} campaigns.`);
-      }
-      setIsLoading(false);
-    };
-
-    void fetchCampaigns();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount
-
-  // Real-time log updates from engine_log table
-  useEffect(() => {
-    const fetchInitialLogs = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('engine_log')
-          .select('*')
-          .order('processed_at', { ascending: true }) // Fetch oldest first for initial display
-          .limit(10); // Changed from 50 to match MAX_DISPLAY_LOGS
-
-        if (error) {
-          console.error('Error fetching initial engine logs:', error);
-          setConsoleLogs(prevLogs => [
-            ...prevLogs,
-            {
-              id: `${Date.now().toString()}_fetch_error`,
-              timestamp: new Date().toISOString(),
-              message: `Error fetching initial logs: ${error.message}`,
-              type: 'error'
-            }
-          ]);
-          return;
-        }
-
-        if (data) {
-          const formattedLogs: LogEntry[] = data.map((log: FetchedLogItem) => {
-            let timestampStr: string;
-            if (log.processed_at) {
-              const dateObj = new Date(log.processed_at);
-              if (isNaN(dateObj.getTime())) {
-                console.warn(`Invalid date value for processed_at: '${log.processed_at}' (log ID: ${log.id}). Using current time as fallback.`);
-                timestampStr = new Date().toISOString();
-              } else {
-                timestampStr = dateObj.toISOString();
-              }
-            } else {
-              console.warn(`Null or undefined processed_at for log ID: ${log.id}. Using current time as fallback.`);
-              timestampStr = new Date().toISOString();
-            }
-
-            const validLogTypes: ReadonlyArray<LogEntry['type']> = ['info', 'error', 'success', 'warning', 'engine'];
-            let mappedType: LogEntry['type'] = 'engine'; // Default type
-            if (log.log_level && validLogTypes.includes(log.log_level as LogEntry['type'])) {
-              mappedType = log.log_level as LogEntry['type'];
-            } else if (log.log_level) {
-              // Log level exists but is not one of the predefined valid types
-              console.warn(`Unknown log_level: '${log.log_level}' (log ID: ${log.id}). Defaulting to 'engine'.`);
-            }
-
-            let finalMessage: string;
-            if (log.message === null || typeof log.message === 'undefined') {
-              finalMessage = '';
-            } else {
-              finalMessage = String(log.message); // Ensure it's a string if not null/undefined
-            }
-
-            return {
-              id: String(log.id), // Ensure ID is string
-              timestamp: timestampStr,
-              message: finalMessage, // Use the explicitly typed and processed string
-              type: mappedType, // This should be correctly typed as LogEntry['type']
-              data: log.data
-            };
-          }) as LogEntry[];
-          setConsoleLogs(formattedLogs); // Set initial logs directly, replacing any previous ones
-        }
-      } catch (e: unknown) {
-        console.error('Exception fetching initial logs:', e);
-        setConsoleLogs(prevLogs => [
-          { 
-            id: `${Date.now().toString()}_fetch_exception`,
-            timestamp: new Date().toISOString(), 
-            message: `Exception fetching initial logs: ${e instanceof Error ? e.message : 'Unknown error'}. Check browser console.`, 
-            type: 'error' 
-          }, 
-          ...prevLogs.slice(0, MAX_DISPLAY_LOGS - 1)
-        ]);
-      }
-    };
-
-    void fetchInitialLogs();
-
-    const channel = supabase
-      .channel('engine_log_changes') // Unique channel name
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'engine_log' },
-        (payload) => {
-          console.log('Engine log payload received (raw):', payload);
-          if (!payload.new) {
-            console.warn('Received Realtime event without payload.new:', payload);
-            return;
-          }
-
-          try {
-            console.log('Raw payload from Supabase:', JSON.stringify(payload, null, 2));
-            
-            const newRawLog = payload.new as EngineLogTablePayload;
-            console.log('Parsed log entry:', newRawLog);
-
-            // Try to get message from different possible locations
-            const messageContent = 
-              newRawLog.message || 
-              (typeof newRawLog.data === 'object' && newRawLog.data?.message) || 
-              'No message provided';
-            
-            // Parse timestamp
-            let timestampStr: string;
-            if (newRawLog.processed_at) {
-              const dateObj = new Date(newRawLog.processed_at);
-              timestampStr = isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
-            } else {
-              console.warn('Missing processed_at timestamp, using current time');
-              timestampStr = new Date().toISOString();
-            }
-
-            // Map log level to type
-            const logLevel = newRawLog.log_level || 'info';
-            const mappedType: LogEntry['type'] = 
-              (['info', 'error', 'success', 'warning', 'engine'].includes(logLevel) 
-                ? logLevel 
-                : 'info') as LogEntry['type'];
-
-            const newLogEntry: LogEntry = {
-              id: String(newRawLog.id),
-              timestamp: timestampStr,
-              message: typeof messageContent === 'object' ? JSON.stringify(messageContent) : String(messageContent),
-              type: mappedType,
-              data: newRawLog.data,
-            };
-
-            console.log('New log entry to be added:', newLogEntry);
-
-            setConsoleLogs(prevLogs => {
-              // Create a new array with the new log and previous logs, then slice to ensure max length
-              const newLogs = [newLogEntry, ...prevLogs].slice(0, MAX_DISPLAY_LOGS);
-              console.log('[DEBUG] New logs for UI (limited):', newLogs); // Debug log
-              setLogRenderKey(prev => prev + 1); // Force re-render
-              return newLogs; // Return the new array
-            });
-
-          } catch (processingError) {
-            console.error('Critical error processing Realtime engine_log message:', processingError, 'Payload:', payload);
-            // Optionally, add an error log to the UI console itself
-            setConsoleLogs(prevLogs => [
-              { 
-                id: `error_${Date.now()}`, 
-                timestamp: new Date().toISOString(), 
-                message: `Error processing log: ${processingError instanceof Error ? processingError.message : 'Unknown error'}. Check browser console.`, 
-                type: 'error' 
-              }, 
-              ...prevLogs.slice(0, MAX_DISPLAY_LOGS - 1)
-            ]);
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to engine_log changes!');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) { // Added TIMED_OUT
-          console.error('Engine log subscription error. Status:', status, 'Error object:', err); // Log entire error object
-          setConsoleLogs(prevLogs => {
-            const newErrorLog: LogEntry = {
-              id: `${Date.now().toString()}_sub_error`,
-              timestamp: new Date().toISOString(),
-              // Provide more detailed error in the UI log
-              message: status === 'TIMED_OUT'
-                ? `Log subscription timed out. Connection may attempt to re-establish. (Details: ${err ? JSON.stringify(err) : 'No additional error details'})`
-                : `Log subscription error. Status: ${status}. Details: ${err ? JSON.stringify(err) : 'Unknown error'}`, 
-              type: 'error'
-            };
-            // Prepend new error log and keep only the latest 10 entries
-            const updatedLogs = [newErrorLog, ...prevLogs.slice(0, 9)];
-            return updatedLogs;
-          });
-        }
-      });
-
-    // Cleanup function to remove the channel subscription when the component unmounts
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, []); // Empty dependency array, supabase client is stable
-
-  // Real-time log updates from campaign_jobs table
-  useEffect(() => {
-    const campaignJobsChannel = supabase
-      .channel('campaign_jobs_changes') // Unique channel name
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'campaign_jobs' }, // Listen for all changes (INSERT, UPDATE, DELETE)
-        (payload) => {
-          console.log('Realtime: Change in campaign_jobs:', payload);
-          // Optionally, format and add to consoleLogs state if needed for UI display
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to campaign_jobs changes!');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
-          console.error('Campaign_jobs subscription error. Status:', status, 'Error:', err);
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(campaignJobsChannel);
-    };
-  }, []); // Assuming supabase client is stable
-
-  // Real-time log updates from system_event_logs table
-  useEffect(() => {
-    const systemEventsChannel = supabase
-      .channel('system_event_logs_changes') // Unique channel name
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'system_event_logs' }, // Typically listen for INSERTs
-        (payload) => {
-          console.log('Realtime: New system_event_log entry:', payload.new);
-          // Optionally, format and add to consoleLogs state
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to system_event_logs changes!');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
-          console.error('System_event_logs subscription error. Status:', status, 'Error:', err);
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(systemEventsChannel);
-    };
-  }, []); // Assuming supabase client is stable
-
-  useEffect(() => {
-    console.log('consoleLogs updated:', consoleLogs);
-  }, [consoleLogs]);
-
-  const addLog = useCallback((type: LogEntry['type'], message: string, data?: Record<string, unknown>) => {
-    setConsoleLogs(prevLogs => {
-      const updatedLogs = [
-        ...prevLogs,
-        {
-          id: `${Date.now().toString()}_${Math.random().toString(36).substring(7)}`,
-          timestamp: new Date().toISOString(),
-          message,
-          type,
-          data,
-        }
-      ];
-      return updatedLogs.slice(-MAX_DISPLAY_LOGS);
-    });
-  }, []); // MAX_DISPLAY_LOGS is a constant, no need to add to deps
-
-  // Scroll to bottom of console
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [consoleLogs]);
+  }, [logs, activeTab]);
 
-  // Placeholder for initial engine status check (if needed)
-  useEffect(() => {
-    // You might want to fetch the current engine status from an RPC or a dedicated table on load
-    addLog('info', 'Engine Control Panel Initialized.');
-    // Example: async function fetchEngineStatus() { ... setEngineStatus ... } 
-    // void fetchEngineStatus();
-
-    // Fetch market regions for the test email selector
-    const fetchMarketRegionsForTest = async () => {
-      addLog('info', 'Fetching market regions for test email selector...');
-      setIsLoadingMarketRegions(true);
-      try {
-        const response = await fetch('/api/market-regions');
-        if (!response.ok) {
-          const errorDetails = { error: `Failed to fetch market regions: ${response.statusText}` };
-          try {
-            // Attempt to parse JSON error response from the server
-            const parsedError = await response.json();
-            if (parsedError && typeof parsedError.error === 'string') {
-              errorDetails.error = parsedError.error;
-            }
-          } catch {}{
-            // Response body wasn't JSON or error field was not a string, use default statusText based error
-          }
-          throw new Error(errorDetails.error);
-        }
-
-        const responseData = await response.json(); // This is 'any' until validated
-
-        // Check if the responseData itself is an error object (e.g., { error: "message" })
-        if (typeof responseData === 'object' && responseData !== null && 'error' in responseData && typeof responseData.error === 'string') {
-          throw new Error(String(responseData.error || 'Unknown API error'));
-        }
-
-        // Perform a runtime check to ensure responseData is an array of MarketRegion objects
-        if (!Array.isArray(responseData) || !responseData.every(
-            (item: unknown): item is MarketRegion => // Type predicate for better type inference
-                typeof item === 'object' && item !== null &&
-                'id' in item && typeof item.id === 'string' &&
-                'name' in item && typeof item.name === 'string' &&
-                'normalized_name' in item && typeof item.normalized_name === 'string'
-            // Not strictly checking lead_count here as it's not used for the selection logic
-        )) {
-          throw new Error('Invalid data format for market regions. Expected an array of MarketRegion objects.');
-        }
-
-        const marketRegions: MarketRegion[] = responseData; // Now type-safe
-
-        setMarketRegionsList(marketRegions);
-
-        if (marketRegions.length > 0) {
-          const firstRegion = marketRegions[0];
-          // After validation, firstRegion.normalized_name is guaranteed to be a string.
-          setSelectedTestMarketRegion(firstRegion.normalized_name);
-          addLog('info', `Market regions loaded. Default test region: ${firstRegion.name}`);
-        } else {
-          addLog('warning', 'No market regions found.');
-          setSelectedTestMarketRegion(undefined); // Explicitly set to undefined
-        }
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        addLog('error', `Error fetching market regions: ${errorMessage}`);
-        setError(`Failed to load market regions: ${errorMessage}`);
-        setMarketRegionsList([]); // Clear list on error
-        setSelectedTestMarketRegion(undefined); // Clear selection on error
-      } finally {
-        setIsLoadingMarketRegions(false);
-      }
-    };
-    void fetchMarketRegionsForTest();
-  }, [addLog]);
-
-  const handleScheduleCampaign = async () => {
-    if (!selectedCampaignId) {
-      addLog('error', 'No campaign selected. Please select a campaign to schedule.');
+  const handleCampaignAction = async (action: (id: number) => Promise<void>, campaignId?: number) => {
+    if (campaignId === undefined) {
+      console.error("No campaign selected for action");
       return;
     }
-    if (!selectedInterval) {
-      addLog('error', 'No interval selected. Please set an interval.');
-      return;
+    try {
+      await action(campaignId);
+    } catch (error) {
+      console.error(`Failed to ${action.name} campaign:`, error);
+    }
+  };
+
+  const activeCampaignId = campaigns.find(c => c.status === 'running' || c.status === 'paused')?.id;
+
+  const renderLogs = (logData: LogEntry[]) => {
+    if (logData.length === 0) {
+      return <p className="text-center text-gray-500">No logs to display.</p>;
     }
 
-    setIsScheduling(true);
-    const campaignName = allCampaigns.find(c => c.id === selectedCampaignId)?.name || 'Unknown Campaign';
-    // Assuming selectedCampaignId is already a valid UUID string from the database.
-    const campaignUuid = selectedCampaignId;
-
-    addLog('info', `Attempting to schedule campaign: ${campaignName} (ID: ${campaignUuid}) with offset: ${selectedInterval}`);
-
-    try {
-      // Call the uniquely named function
-      addLog('info', 'Scheduler: Calling schedule_campaign_by_id_offset (id, offset)');
-      // The RPC function now returns TABLE(job_id UUID, next_processed_time TIMESTAMPTZ)
-      const { data: scheduleData, error: scheduleError } = await supabase.rpc('schedule_campaign_by_id_offset', {
-        p_campaign_id: campaignUuid,
-        p_start_offset: selectedInterval
-      });
-
-      if (scheduleError) {
-        console.error('Error calling schedule_campaign_by_id_offset RPC:', scheduleError);
-
-        const rpcErrorMessage = scheduleError.message || JSON.stringify(scheduleError);
-        const rpcErrorCode = scheduleError.code || 'N/A';
-        const rpcErrorDetails = scheduleError.details || 'N/A';
-
-        addLog(
-          'error',
-          `Failed to schedule campaign ${campaignName}: ${rpcErrorMessage}`,
-          { code: rpcErrorCode, details: rpcErrorDetails, rawError: scheduleError } // Add rawError for inspection in UI log data
-        );
-        setError(
-          `RPC Error: ${rpcErrorMessage}` + (scheduleError.code ? ` (Code: ${scheduleError.code})` : '')
-        );
-      } else {
-        addLog('success', `Successfully scheduled campaign ${campaignName} to run with offset: ${selectedInterval}.`);
-        
-        // Check if scheduleData has content to create a CSV
-        if (scheduleData && scheduleData.length > 0) {
-          addLog('info', `Generating job_manifest.csv for ${scheduleData.length} jobs...`);
-          try {
-            const csvHeader = 'job_id,next_processed_time\n';
-            const csvRows = scheduleData.map((job: { job_id: string; next_processed_time: string }) => {
-              // Ensure next_processed_time is treated as UTC and formatted correctly
-              // PostgreSQL TIMESTAMPTZ is usually returned as an ISO string already in UTC or with offset.
-              // new Date().toISOString() converts to UTC and formats as YYYY-MM-DDTHH:mm:ss.sssZ
-              const processedTime = new Date(job.next_processed_time).toISOString();
-              return `${job.job_id},${processedTime}`;
-            }).join('\n');
-            
-            const csvContent = csvHeader + csvRows;
-            
-            // Trigger download
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', 'job_manifest.csv');
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            addLog('info', 'job_manifest.csv download initiated.');
-          } catch (csvError: unknown) {
-            console.error('Error generating or downloading job_manifest.csv:', csvError);
-            addLog('error', `Failed to generate job_manifest.csv: ${csvError instanceof Error ? csvError.message : 'Unknown error'}`);
-          }
-        } else {
-          addLog('info', 'No jobs were scheduled, so no job_manifest.csv was generated.');
+    return logData.map((log) => {
+      let displayMessage = log.message;
+      // Attempt to parse and pretty-print if the message is a JSON string
+      if (typeof displayMessage === 'string' && displayMessage.trim().startsWith('{')) {
+        try {
+          const parsedJson = JSON.parse(displayMessage);
+          displayMessage = JSON.stringify(parsedJson, null, 2);
+        } catch (e) {
+          // Not a valid JSON string, leave as is
         }
+      } else if (typeof displayMessage !== 'string') {
+        // For any non-string messages that might have slipped through
+        displayMessage = JSON.stringify(displayMessage, null, 2);
       }
-    } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-      console.error('Exception calling schedule_campaign_by_id_offset RPC:', e);
-      addLog('error', `Exception while scheduling campaign ${campaignName}: ${errorMessage}`);
-      setError(`Exception: ${errorMessage}`);
-    }
-    setIsScheduling(false);
-  };
-
-  const handleSendTestEmail = async () => {
-    if (!selectedTestMarketRegion) {
-      addLog('warning', 'Please select a market region for the test email.');
-      setError('A market region must be selected to send a test email.');
-      return;
-    }
-    // Updated log message to reflect the new endpoint
-    addLog('info', 'Sending request to /api/engine/send-email for test email...');
-    setIsLoading(true);
-    setEngineStatus('test_sending');
-    setError(null);
-
-    try {
-      // Changed fetch URL to /api/engine/send-email
-      const response = await fetch('/api/engine/send-email', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          marketRegionNormalizedName: selectedTestMarketRegion,
-          sendToLead: false, // This is key for triggering test email behavior
-          sendPdf: true,    // Explicitly send true for test emails
-          // campaignId: undefined, // Explicitly not sending for a simple test email for now
-          // specificLeadIdToTest: undefined, // Not selecting a specific lead for this test
-        }),
-      });
-
-      const result: TestEmailResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `API request failed with status ${response.status}`);
-      }
-
-      if (result.success) {
-        // Adjusted success log based on send-email response
-        let successMsg = 'Test email API success.';
-        if (result.messageId) {
-          successMsg += ` Message ID: ${result.messageId}.`;
-        }
-        if (result.message) {
-            successMsg += ` Message: ${result.message}.`;
-        }
-        addLog('success', successMsg);
-        // lead_id and subject are logged server-side, not directly available here
-        // If needed, a generic message indicating test email was processed for the selected market can be added.
-        addLog('info', `Test email for market region '${selectedTestMarketRegion}' processed.`);
-      } else {
-        throw new Error(result.error || 'Test email API returned success:false');
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        const errorMessage = error.message;
-        addLog('error', `Error during test email: ${errorMessage}`);
-        setError(errorMessage);
-        setEngineStatus('error'); // Set status to error
-      }
-    } finally {
-      setIsLoading(false);
-      // Reset status to 'idle' only if not in an error state
-      if (engineStatus !== 'error' && engineStatus === 'test_sending') { // ensure we only reset from test_sending
-        setEngineStatus('idle');
-      }
-    }
-  };
-
-  const handleStartEngine = async () => {
-    if (!selectedTestMarketRegion || selectedTestMarketRegion.trim() === '') {
-      const msg = 'Market region cannot be empty. Please select a region.';
-      addLog('warning', msg);
-      setError(msg);
-      return;
-    }
-    addLog('info', `Initiating Engine start sequence for market region: ${selectedTestMarketRegion}...`);
-    setIsLoading(true);
-    setEngineStatus('starting');
-    setError(null);
-
-    try {
-      // Step 1: Call resume-campaign
-      addLog('info', 'Attempting to resume campaign processing flag...');
-      const resumeResponse = await fetch('/api/engine/resume-campaign', { method: 'POST' });
-      const resumeResult: ResumeCampaignResponse = await resumeResponse.json();
-
-      if (!resumeResponse.ok || !resumeResult.success) {
-        throw new Error(resumeResult.error || `Failed to resume campaign flag (status ${resumeResponse.status})`);
-      }
-      addLog('success', 'Campaign processing flag successfully set to RESUMED.');
-
-      // Step 2: Call start-campaign
-      addLog('info', `Sending request to /api/engine/start-campaign for market: ${selectedTestMarketRegion}...`);
-      const startResponse = await fetch('/api/engine/start-campaign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          market_region: selectedTestMarketRegion /*, limit_per_run: 10 */ }),
-      });
-      const startResult: StartCampaignResponse = await startResponse.json();
-
-      if (!startResponse.ok) {
-        throw new Error(startResult.error || `API request to start-campaign failed with status ${startResponse.status}`);
-      }
-
-      if (startResult.success) {
-        addLog('success', `Start campaign API success: ${startResult.message}`);
-        addLog('info', `Batch details: Attempted: ${startResult.attempted}, Succeeded: ${startResult.succeeded}, Failed: ${startResult.failed}`);
-        if (startResult.processing_errors && startResult.processing_errors.length > 0) {
-            addLog('warning', `Encountered ${startResult.processing_errors.length} errors during batch processing. Check logs.`, { errors: startResult.processing_errors });
-        }
-        setEngineStatus('running'); // Reflects that a batch was started
-      } else {
-        throw new Error(startResult.error || 'Start campaign API returned success:false');
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        const errorMessage = error.message;
-        addLog('error', `Error during engine start sequence: ${errorMessage}`);
-        setError(errorMessage);
-        setEngineStatus('error');
-      }
-    } finally {
-      setIsLoading(false);
-      // Do not reset to 'idle' here if it successfully started a batch ('running') or errored out.
-    }
-  };
-
-  const handleStopEngine = async () => {
-    addLog('info', 'Sending request to /api/engine/stop-campaign...');
-    setIsLoading(true);
-    setEngineStatus('stopping');
-    setError(null);
-    try {
-      const response = await fetch('/api/engine/stop-campaign', { method: 'POST' });
-      const result: StopCampaignResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `API request to stop-campaign failed with status ${response.status}`);
-      }
-
-      if (result.success) {
-        addLog('success', `Stop campaign API success: ${result.message}`);
-        setEngineStatus('stopped'); 
-      } else {
-        throw new Error(result.error || 'Stop campaign API returned success:false');
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        const errorMessage = error.message;
-        addLog('error', `Error stopping engine: ${errorMessage}`);
-        setError(errorMessage);
-        setEngineStatus('error'); 
-      }
-    } finally {
-      setIsLoading(false);
-      // If it's not an error, it should be 'stopped'. If error, it's 'error'.
-      // No automatic reset to 'idle'.
-    }
-  };
-
-  const handleStartClick = async (): Promise<void> => {
-    try {
-      await handleStartEngine();
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error starting engine:', error.message);
-      }
-    }
-  };
-
-  const handleTestEmailClick = async (): Promise<void> => {
-    try {
-      await handleSendTestEmail();
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error sending test email:', error.message);
-      }
-    }
-  };
-
-  const handleStopClick = async (): Promise<void> => {
-    try {
-      await handleStopEngine();
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error stopping engine:', error.message);
-      }
-    }
-  };
-
-  const getStatusColor = (status: EngineStatus): string => {
-    switch (status) {
-      case 'running': return 'text-success';
-      case 'stopped':
-      case 'idle': return 'text-info';
-      case 'error': return 'text-error';
-      case 'starting':
-      case 'stopping':
-      case 'test_sending': return 'text-warning';
-      default: return 'text-neutral-content';
-    }
+      
+      return (
+        <div
+          key={log.id}
+          className={`p-2 rounded ${
+            log.type === 'error'
+              ? 'bg-red-900/10 text-red-400'
+              : log.type === 'success'
+              ? 'bg-green-900/10 text-green-400'
+              : log.type === 'warning'
+              ? 'bg-yellow-900/10 text-yellow-400'
+              : 'bg-base-300'
+          }`}
+        >
+          <div className="flex justify-between text-xs opacity-70 mb-1">
+            <span>{new Date(log.timestamp).toLocaleString()}</span>
+            <span className="font-mono">ID: {log.id}</span>
+          </div>
+          <div className="font-mono text-sm break-words whitespace-pre-wrap">
+            {displayMessage}
+          </div>
+          {log.data && (
+            <details className="mt-1">
+              <summary className="text-xs cursor-pointer opacity-70">
+                Details
+              </summary>
+              <pre className="text-xs p-2 bg-base-100 rounded mt-1 overflow-x-auto">
+                {JSON.stringify(log.data, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+      );
+    });
   };
 
   return (
-    <div className="p-4 md:p-6 min-h-screen bg-base-200">
-      {error && (
-        <div className="alert alert-error mb-4">
-          <AlertTriangle className="h-5 w-5" />
-          <span>{error}</span>
+    <Card className="h-full flex flex-col">
+      <CardHeader>
+        <CardTitle>Engine Control</CardTitle>
+        <div className="flex items-center space-x-2 mt-2">
+          <p>Status: <span className={`font-bold ${status === 'running' ? 'text-green-500' : 'text-red-500'}`}>{status}</span></p>
+          {campaigns.length > 0 && (
+            <>
+              <Button onClick={() => handleCampaignAction(startCampaign, campaigns[0].id)} disabled={status === 'running'}>Start</Button>
+              <Button onClick={() => handleCampaignAction(stopCampaign, activeCampaignId)} disabled={status !== 'running'}>Stop</Button>
+              <Button onClick={() => handleCampaignAction(resumeCampaign, activeCampaignId)} disabled={status !== 'paused'}>Resume</Button>
+              <Button onClick={() => clearLogs('all')} variant="destructive">Clear All Logs</Button>
+            </>
+          )}
         </div>
-      )}
-      {/* Realtime Console Card */}
-      <div className="card bg-base-200 shadow-lg mb-6">
-        <div className="card-body p-0">
-          <div className="tabs tabs-boxed bg-base-200 p-2">
-            <button 
-              className={`tab ${activeConsoleTab === 'system' ? 'tab-active' : ''}`}
-              onClick={() => setActiveConsoleTab('system')}
-            >
-              System Logs
-            </button>
-            <button 
-              className={`tab ${activeConsoleTab === 'campaign' ? 'tab-active' : ''}`}
-              onClick={() => setActiveConsoleTab('campaign')}
-            >
-              Campaign Jobs
-            </button>
+      </CardHeader>
+      <CardContent className="flex-grow flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-grow flex flex-col">
+          <TabsList>
+            <Tab value="engine">Engine Logs</Tab>
+            <Tab value="system">System Events</Tab>
+            <Tab value="jobs">Campaign Jobs</Tab>
+          </TabsList>
+          <div className="flex-grow bg-black/50 p-4 rounded-b-md overflow-y-auto h-96">
+            <TabsContent value="engine" className="h-full">
+              <div className="space-y-2">{renderLogs(logs.engine)}</div>
+            </TabsContent>
+            <TabsContent value="system" className="h-full">
+              <div className="space-y-2">{renderLogs(logs.system)}</div>
+            </TabsContent>
+            <TabsContent value="jobs" className="h-full">
+              <div className="space-y-2">{renderLogs(logs.jobs)}</div>
+            </TabsContent>
+            <div ref={consoleEndRef} />
           </div>
-          
-          <div className="p-4 h-96 overflow-y-auto bg-base-100">
-            {filteredLogs.length === 0 ? (
-              <p className="text-center text-base-content/50">No {activeConsoleTab} logs available</p>
-            ) : (
-              <div className="space-y-2">
-                {filteredLogs.map((log) => (
-                  <div 
-                    key={log.id}
-                    className={`p-2 rounded ${
-                      log.type === 'error' 
-                        ? 'bg-error/10 text-error' 
-                        : log.type === 'warning' 
-                        ? 'bg-warning/10 text-warning'
-                        : log.type === 'success'
-                        ? 'bg-success/10 text-success'
-                        : 'bg-base-200'
-                    }`}
-                  >
-                    <div className="flex justify-between text-xs opacity-70 mb-1">
-                      <span>{new Date(log.timestamp).toLocaleString()}</span>
-                      <span className="font-mono">ID: {log.id}</span>
-                    </div>
-                    <div className="font-mono text-sm break-words">
-                      {log.message}
-                    </div>
-                  </div>
-                ))}
-                <div ref={consoleEndRef} />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="card bordered shadow-lg bg-base-100 mb-6">
-        <div className="card-body p-4 md:p-6"> 
-          <div className="mb-6"> 
-            <div className="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-center"> 
-              <h2 className="text-xl font-semibold mb-2 sm:mb-0">
-                Engine Status: <span className={`font-bold ${getStatusColor(engineStatus)}`}>{engineStatus.toUpperCase()}</span>
-              </h2>
-              <div className="form-control w-full sm:w-auto">
-                <label htmlFor="marketRegionSelect" className="label pb-1">
-                  <span className="label-text flex items-center text-base">
-                    <MapPin size={18} className="mr-2" /> Market Region
-                  </span>
-                </label>
-                {isLoadingMarketRegions ? (
-                  <div className="skeleton h-12 w-full sm:w-64"></div>
-                ) : marketRegionsList.length > 0 ? (
-                  <select
-                    id="marketRegionSelect"
-                    value={selectedTestMarketRegion}
-                    onChange={(e) => setSelectedTestMarketRegion(e.target.value)}
-                    className="select select-bordered w-full sm:w-64"
-                    disabled={isLoading || isLoadingMarketRegions || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
-                  >
-                    {marketRegionsList.map((region) => (
-                      <option key={region.id} value={region.normalized_name}>
-                        {region.name} ({region.lead_count} leads)
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm text-base-content opacity-70 mt-2">No market regions available.</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => {
-                void handleTestEmailClick(); 
-                // Any immediate synchronous UI updates can go here if needed,
-                // but async state changes (like loading) should be in handleTestEmailClick itself.
-              }}
-              className="btn btn-warning w-full text-base py-3"
-              disabled={isLoading || isLoadingMarketRegions || !selectedTestMarketRegion || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
-            >
-              <Mail size={20} className="mr-2" /> Send Test Email
-            </button>
-
-            <button
-              onClick={() => {
-                void handleStartClick(); 
-                // Any immediate synchronous UI updates can go here if needed,
-                // but async state changes (like loading) should be in handleStartClick itself.
-              }}
-              className="btn btn-success w-full text-base py-3"
-              disabled={isLoading || isLoadingMarketRegions || !selectedTestMarketRegion || ['starting', 'running', 'stopping', 'test_sending'].includes(engineStatus)}
-            >
-              <PlayCircle size={20} className="mr-2" /> Start Engine
-            </button>
-
-            <button
-              onClick={() => {
-                void handleStopClick(); 
-                // Any immediate synchronous UI updates can go here if needed,
-                // but async state changes (like loading) should be in handleStopClick itself.
-              }}
-              className="btn btn-error w-full text-base py-3"
-              disabled={isLoading || ['stopping', 'stopped', 'idle', 'test_sending'].includes(engineStatus)}
-            >
-              <StopCircle size={20} className="mr-2" /> Stop Engine
-            </button>
-          </div>
-
-          {/* Campaign Scheduler Controls */}
-          <div className="mt-6 border-t pt-6">
-            <h3 className="text-lg font-semibold mb-4">Schedule Campaign</h3>
-
-            {/* Schedule Button - MOVED UP - full width, added mb-4 */}
-            <div className="form-control w-full mb-4">
-              <button 
-                className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
-                onClick={handleScheduleCampaign}
-                disabled={isLoading || !selectedCampaignId || isScheduling}
-              >
-                {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
-              </button>
-            </div>
-
-            {/* Flex row for Campaign Selector and TimePicker - MOVED DOWN, removed mb-4 */}
-            <div className="flex flex-row gap-4 items-baseline">
-              {/* Campaign Selection Dropdown - takes 2/3 width */}
-              <div className="form-control w-2/3">
-                <label className="label">
-                  <span className="label-text">Select Campaign</span>
-                </label>
-                <select 
-                  className="select select-bordered select-sm w-full"
-                  value={selectedCampaignId}
-                  onChange={(e) => setSelectedCampaignId(e.target.value)}
-                  disabled={isLoading || allCampaigns.length === 0}
-                >
-                  {allCampaigns.length === 0 && <option value="">{isLoading ? 'Loading campaigns...' : 'No campaigns found'}</option>}
-                  {allCampaigns.map((campaign) => (
-                    <option key={campaign.id} value={campaign.id}>
-                      {campaign.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* TimePicker for Interval - takes 1/3 width */}
-              <div className="form-control w-1/3">
-                <TimePicker 
-                  inlineLabel="Start Offset"
-                  initialInterval={selectedInterval} 
-                  onIntervalChange={(interval) => setSelectedInterval(interval)} 
-                />
-              </div>
-            </div>
-
-            {/* Schedule Button - full width below the row */}
-            {/* <div className="form-control w-full">
-              <button 
-                className={`btn btn-primary w-full ${isScheduling ? 'loading' : ''}`}
-                onClick={handleScheduleCampaign}
-                disabled={isScheduling || !selectedCampaignId || allCampaigns.length === 0}
-              >
-                {isScheduling ? 'Scheduling...' : 'Schedule Campaign'}
-              </button>
-            </div> */}
-          </div>
-        </div>
-      </div>
-    </div>
+        </Tabs>
+      </CardContent>
+    </Card>
   );
 };
-
-// Interface for raw log items fetched from the backend/Supabase
-interface FetchedLogItem {
-  id: string | number;
-  processed_at?: string | null; // Timestamps from DB can be string or null
-  message?: string | null;      // Message content
-  log_level?: string | null;    // Log level from DB, used to map to LogEntry['type']
-  data?: Record<string, unknown>;                   // Any additional data associated with the log
-}
 
 export default EngineControlView;

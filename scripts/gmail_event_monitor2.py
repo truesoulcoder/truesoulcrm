@@ -1,3 +1,5 @@
+# gmail_event_monitor.py - FINAL & TUNED
+
 import os
 import json
 import base64
@@ -15,20 +17,15 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # --- Environment & Configuration ---
-# Load .env files from the parent directory
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path=dotenv_path)
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local'), override=True)
 
-# Supabase Configuration
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-
-# Google Service Account Configuration
 GOOGLE_SA_KEY_STRING = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY")
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
-# Logging Configuration
 LOG_LEVEL_MAP = {
     "DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING,
     "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL
@@ -43,7 +40,6 @@ logger = logging.getLogger('gmail_engagement_monitor')
 logger.setLevel(min(CONSOLE_LOG_LEVEL, SUPABASE_LOG_LEVEL))
 logger.propagate = False
 
-# Console Handler
 if not logger.handlers:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(CONSOLE_LOG_LEVEL)
@@ -62,7 +58,7 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
 else:
     logger.critical("Supabase URL or Service Key not found in environment variables.")
 
-# --- Supabase Log Handler (Optional but recommended) ---
+# --- Supabase Log Handler Class ---
 class SupabaseLogHandler(logging.Handler):
     def __init__(self, supabase_client: Client, table_name: str = 'system_script_logs'):
         super().__init__()
@@ -80,11 +76,8 @@ class SupabaseLogHandler(logging.Handler):
             }
             if record.exc_info:
                 log_entry['details']['exception'] = traceback.format_exc()
-            
-            # Use a non-blocking thread to send logs
             threading.Thread(target=self._send_to_supabase, args=(log_entry,)).start()
         except Exception as e:
-            # Fallback to stderr if logging to Supabase fails during emit
             print(f"FATAL: Error in SupabaseLogHandler.emit: {e}", file=sys.stderr)
 
     def _send_to_supabase(self, log_entry):
@@ -105,23 +98,17 @@ google_creds = None
 if GOOGLE_SA_KEY_STRING:
     try:
         creds_dict = json.loads(GOOGLE_SA_KEY_STRING)
-        # --- THIS IS THE CRUCIAL FIX ---
-        # Un-escape newline characters for the private key
         if 'private_key' in creds_dict:
             creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
-        
         google_creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=GMAIL_SCOPES)
-    except (json.JSONDecodeError, TypeError) as e:
-        logger.critical(f"Google SA Key is not valid JSON. Error: {e}")
     except Exception as e:
-        logger.critical(f"Failed to process Google credentials. Error: {e}", exc_info=True)
+        logger.critical(f"Failed to process Google credentials: {e}", exc_info=True)
 else:
-    logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY not found in environment variables.")
+    logger.critical("GOOGLE_SERVICE_ACCOUNT_KEY not found.")
 
 # --- Core Functions ---
 
 def get_gmail_service(user_email_to_impersonate):
-    """Creates an authorized Gmail service instance for a specific user."""
     if not google_creds:
         logger.error(f"Google credentials not loaded. Cannot create Gmail service for {user_email_to_impersonate}.")
         return None
@@ -133,7 +120,6 @@ def get_gmail_service(user_email_to_impersonate):
         return None
 
 def get_message_body(message_payload):
-    """Extracts the plain text body from a message payload."""
     body_data = ""
     if 'parts' in message_payload:
         for part in message_payload['parts']:
@@ -142,141 +128,99 @@ def get_message_body(message_payload):
                 break
     elif 'data' in message_payload.get('body', {}):
         body_data = message_payload['body']['data']
-
     if body_data:
         return base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
     return ""
 
 def is_reply_message(msg):
-    """Determines if a message is a reply based on headers and subject."""
     try:
         headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
         if headers.get('in-reply-to') or headers.get('references'):
             return True
-        subject = headers.get('subject', '').lower()
-        if subject.startswith(('re:', 'aw:')):
+        if headers.get('subject', '').lower().startswith(('re:', 'aw:')):
             return True
-        # Check for auto-replies, which are often out-of-office notifications
         if headers.get('auto-submitted', 'no').lower() != 'no':
             return True
         return False
-    except Exception as e:
-        logger.warning(f"Could not check reply status for message {msg.get('id')}: {e}", exc_info=True)
+    except Exception:
         return False
 
 def is_bounce_message(msg):
-    """Determines if a message is a bounce notification."""
     try:
         headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
-        subject = headers.get('subject', '').lower()
-        from_header = headers.get('from', '').lower()
-
-        # Check for standard bounce indicators
-        if 'mailer-daemon@' in from_header or 'postmaster@' in from_header:
+        if 'mailer-daemon@' in headers.get('from', '') or 'postmaster@' in headers.get('from', ''):
             return True
-        if any(phrase in subject for phrase in ['undeliverable', 'delivery status notification', 'failure notice']):
+        if any(phrase in headers.get('subject', '').lower() for phrase in ['undeliverable', 'delivery status notification', 'failure notice']):
             return True
-
-        # Check body for common bounce phrases (more expensive, so do it last)
         body = get_message_body(msg['payload']).lower()
         if any(phrase in body for phrase in ['mailbox unavailable', 'address not found', 'recipient rejected', 'user does not exist']):
             return True
-            
         return False
-    except Exception as e:
-        logger.warning(f"Could not check bounce status for message {msg.get('id')}: {e}", exc_info=True)
+    except Exception:
         return False
 
 def update_campaign_job_status(db_client, job_id, status, message_id, event_timestamp):
-    """Updates the status of a campaign job in the database."""
     try:
         logger.info(f"Updating campaign job {job_id} to status: {status}")
         db_client.table("campaign_jobs").update({
             "status": status,
             "status_updated_at": event_timestamp
         }).eq("id", job_id).execute()
-        
-        # Optional: Log the specific event to the engagement table for detailed analytics
         db_client.table("email_engagement_events").insert({
             "campaign_job_id": job_id,
             "email_message_id": message_id,
             "event_type": status,
             "event_timestamp": event_timestamp
         }).execute()
-
     except Exception as e:
         logger.error(f"Failed to update database for job {job_id} with status {status}: {e}", exc_info=True)
 
 def process_message_for_engagement(message_id, gmail_service, db_client):
-    """
-    Processes a single message to determine its engagement status and updates the database.
-    This is the core logic function.
-    """
     try:
         msg = gmail_service.users().messages().get(userId='me', id=message_id).execute()
         headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
         event_timestamp = datetime.fromtimestamp(int(msg['internalDate']) / 1000, tz=timezone.utc).isoformat()
 
-        # --- Check 1: Is this a reply to one of our campaigns? ---
         if is_reply_message(msg):
-            # Extract the ID of the message being replied to
             ref_ids = headers.get('in-reply-to', '').strip('<>').split() + \
                       headers.get('references', '').replace('><', '> <').strip('<>').split()
-            
             if not ref_ids:
-                logger.debug(f"Message {message_id} looks like a reply but has no reference headers. Skipping.")
                 return
-
-            # Find the original campaign job that these references point to
-            response = db_client.table("campaign_jobs").select("id, status") \
-                .in_("email_message_id", ref_ids) \
-                .neq("status", "REPLIED") \
-                .execute()
-
+            response = db_client.table("campaign_jobs").select("id, status").in_("email_message_id", ref_ids).neq("status", "REPLIED").execute()
             if response.data:
                 job = response.data[0]
                 logger.info(f"REPLY detected for campaign job {job['id']} from message {message_id}.")
                 update_campaign_job_status(db_client, job['id'], "REPLIED", message_id, event_timestamp)
-            else:
-                logger.debug(f"Reply message {message_id} does not correspond to a known campaign job.")
-            return # Stop processing once it's identified as a reply
+            return
 
-        # --- Check 2: Is this a bounce notification? ---
         if is_bounce_message(msg):
             body = get_message_body(msg['payload'])
-            # Try to find the original message ID from the bounce report
             match = re.search(r"Original-Message-ID:\s*<([^>]+)>", body, re.IGNORECASE)
             original_message_id = match.group(1) if match else None
 
+            # --- REVISED: Fallback for bounce reports that use In-Reply-To ---
             if not original_message_id:
-                logger.warning(f"Bounce message {message_id} found, but could not extract original message ID.")
+                in_reply_to_header = headers.get('in-reply-to', '').strip('<>')
+                if in_reply_to_header:
+                    logger.debug(f"Bounce {message_id} missing Original-Message-ID, using In-Reply-To as fallback.")
+                    original_message_id = in_reply_to_header
+            
+            if not original_message_id:
+                logger.warning(f"Bounce message {message_id} found, but could not extract an original message ID.")
                 return
 
-            response = db_client.table("campaign_jobs").select("id, status") \
-                .eq("email_message_id", original_message_id) \
-                .neq("status", "BOUNCED") \
-                .execute()
-
+            response = db_client.table("campaign_jobs").select("id, status").eq("email_message_id", f"<{original_message_id}>").neq("status", "BOUNCED").execute()
             if response.data:
                 job = response.data[0]
                 logger.warning(f"BOUNCE detected for campaign job {job['id']} (original msg: {original_message_id}).")
                 update_campaign_job_status(db_client, job['id'], "BOUNCED", message_id, event_timestamp)
-            else:
-                logger.debug(f"Bounce notification for message {original_message_id} does not match any campaign job.")
-            return # Stop processing once it's a bounce
-
-        # --- Check 3: If not a reply or bounce, was this a message we sent? ---
-        # This confirms our sent mail was delivered.
-        sent_message_id = headers.get('message-id', '').strip('<>')
-        if not sent_message_id:
-            logger.debug(f"Message {message_id} is not a reply, bounce, and has no message-id header.")
             return
 
-        response = db_client.table("campaign_jobs").select("id, status") \
-            .eq("email_message_id", sent_message_id) \
-            .eq("status", "sent") \
-            .execute()
+        sent_message_id = headers.get('message-id')
+        if not sent_message_id:
+            return
 
+        response = db_client.table("campaign_jobs").select("id, status").eq("email_message_id", sent_message_id).eq("status", "sent").execute()
         if response.data:
             job = response.data[0]
             logger.info(f"DELIVERED status confirmed for campaign job {job['id']} (message: {sent_message_id}).")
@@ -288,41 +232,39 @@ def process_message_for_engagement(message_id, gmail_service, db_client):
         else:
             logger.error(f"HTTP error processing message {message_id}: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"An unexpected error occurred processing message {message_id}: {e}", exc_info=True)
-
-# --- Main Execution Logic ---
+        logger.error(f"Unexpected error processing message {message_id}: {e}", exc_info=True)
 
 def process_historical_messages(gmail_service, db_client, sender_email, days_back=3):
-    """Processes all mail from the last few days to backfill engagement data."""
     logger.info(f"Starting historical message processing for {sender_email} for the last {days_back} days.")
-    
     date_query = (datetime.now(timezone.utc).date() - timedelta(days=days_back)).strftime('%Y/%m/%d')
     query = f'after:{date_query}'
     
     try:
-        response = gmail_service.users().messages().list(userId='me', q=query, maxResults=500).execute()
-        messages = response.get('messages', [])
-        
-        if not messages:
+        # --- REVISED: Added pagination to get ALL messages ---
+        all_messages = []
+        page_token = None
+        while True:
+            response = gmail_service.users().messages().list(userId='me', q=query, maxResults=500, pageToken=page_token).execute()
+            messages = response.get('messages', [])
+            all_messages.extend(messages)
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                break
+
+        if not all_messages:
             logger.info(f"No historical messages found for {sender_email} in the last {days_back} days.")
             return
 
-        logger.info(f"Found {len(messages)} historical messages to process for {sender_email}.")
-        for i, msg_summary in enumerate(messages):
-            logger.info(f"Processing historical message {i+1}/{len(messages)} (ID: {msg_summary['id']})")
+        logger.info(f"Found {len(all_messages)} total historical messages to process for {sender_email}.")
+        for i, msg_summary in enumerate(all_messages):
+            logger.info(f"Processing historical message {i+1}/{len(all_messages)} (ID: {msg_summary['id']})")
             process_message_for_engagement(msg_summary['id'], gmail_service, db_client)
-            time.sleep(0.5) # Be respectful of API rate limits
+            time.sleep(0.5)
 
     except Exception as e:
         logger.error(f"Failed during historical processing for {sender_email}: {e}", exc_info=True)
 
-
 def monitor_new_messages(db_client):
-    """Monitors active senders' inboxes for new messages in near real-time."""
-    if not db_client:
-        logger.critical("Supabase client not available. Cannot monitor.")
-        return
-
     logger.info("Starting new message monitoring cycle...")
     try:
         senders_res = db_client.table("senders").select("id, sender_email, last_checked_history_id").eq("is_active", True).execute()
@@ -331,45 +273,31 @@ def monitor_new_messages(db_client):
             return
 
         for sender in senders_res.data:
-            sender_id = sender["id"]
-            sender_email = sender["sender_email"]
-            last_history_id = sender.get("last_checked_history_id")
-            
+            sender_id, sender_email, last_history_id = sender["id"], sender["sender_email"], sender.get("last_checked_history_id")
             logger.info(f"Checking for new mail for: {sender_email}")
             gmail_service = get_gmail_service(sender_email)
             if not gmail_service:
-                logger.warning(f"Skipping sender {sender_email} due to Gmail service creation failure.")
                 continue
 
             if not last_history_id:
                 profile = gmail_service.users().getProfile(userId='me').execute()
                 last_history_id = profile.get('historyId')
-                logger.warning(f"No last_checked_history_id for {sender_email}. Setting initial ID to {last_history_id}. No messages will be processed this run.")
+                logger.warning(f"No last_checked_history_id for {sender_email}. Setting initial ID to {last_history_id}.")
                 db_client.table("senders").update({"last_checked_history_id": str(last_history_id)}).eq("id", sender_id).execute()
                 continue
             
-            history_response = gmail_service.users().history().list(
-                userId='me', startHistoryId=last_history_id, historyTypes=['messageAdded']
-            ).execute()
-            
+            history_response = gmail_service.users().history().list(userId='me', startHistoryId=last_history_id, historyTypes=['messageAdded']).execute()
             new_history_id = history_response.get('historyId', last_history_id)
-            messages_added = []
-            if 'history' in history_response:
-                for history_record in history_response['history']:
-                    messages_added.extend([
-                        msg['message']['id'] for msg in history_record.get('messagesAdded', [])
-                    ])
             
-            if messages_added:
+            if 'history' in history_response:
+                messages_added = [msg['message']['id'] for rec in history_response['history'] for msg in rec.get('messagesAdded', [])]
                 unique_message_ids = sorted(list(set(messages_added)))
-                logger.info(f"Found {len(unique_message_ids)} new message(s) for {sender_email}. Processing...")
-                for msg_id in unique_message_ids:
-                    process_message_for_engagement(msg_id, gmail_service, db_client)
-                    time.sleep(0.5) # Rate limit
-            else:
-                logger.info(f"No new messages found for {sender_email} since history ID {last_history_id}.")
-
-            # Update history ID for the next run
+                if unique_message_ids:
+                    logger.info(f"Found {len(unique_message_ids)} new message(s) for {sender_email}. Processing...")
+                    for msg_id in unique_message_ids:
+                        process_message_for_engagement(msg_id, gmail_service, db_client)
+                        time.sleep(0.5)
+            
             if str(new_history_id) != str(last_history_id):
                 db_client.table("senders").update({"last_checked_history_id": str(new_history_id)}).eq("id", sender_id).execute()
                 logger.info(f"Updated history ID for {sender_email} to {new_history_id}")
@@ -377,13 +305,11 @@ def monitor_new_messages(db_client):
     except Exception as e:
         logger.error(f"An error occurred during the monitoring cycle: {e}", exc_info=True)
 
-
 if __name__ == "__main__":
     if not supabase_client or not google_creds:
         logger.critical("Exiting: Supabase client or Google credentials are not configured.")
         sys.exit(1)
 
-    # Mode 1: Process historical mail
     if '--process-history' in sys.argv:
         days_back = 3
         try:
@@ -391,15 +317,13 @@ if __name__ == "__main__":
                 idx = sys.argv.index('--days-back')
                 days_back = int(sys.argv[idx + 1])
         except (ValueError, IndexError):
-            logger.warning("Invalid --days-back value. Defaulting to 3.")
+            pass
         
         senders_res = supabase_client.table("senders").select("sender_email").eq("is_active", True).execute()
         for sender in senders_res.data:
             gmail_service = get_gmail_service(sender["sender_email"])
             if gmail_service:
                 process_historical_messages(gmail_service, supabase_client, sender["sender_email"], days_back)
-
-    # Mode 2 (Default): Monitor for new messages
     else:
         monitor_new_messages(supabase_client)
 
