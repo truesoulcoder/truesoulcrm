@@ -1,10 +1,9 @@
 // src/app/api/engine/start-campaign/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminServerClient } from '@/lib/supabase/server';
-import { Database } from '@/db_types'; // Assuming db_types.ts is updated
 
 export async function POST(request: NextRequest) {
-  const supabase = await createAdminServerClient<Database>();
+  const supabase = await createAdminServerClient();
 
   let requestBody;
   try {
@@ -83,3 +82,5 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error(`Unexpected error in start-campaign handler for campaign_id ${campaign_id}:`, error);
+  }
+}
