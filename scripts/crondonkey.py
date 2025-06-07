@@ -260,6 +260,8 @@ def main_loop(csv_filepath):
     # Ensure Gmail monitor runs on the first suitable cycle after startup
     last_gmail_monitor_run_time = time.time() - GMAIL_MONITOR_INTERVAL_SECONDS
 
+    supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
     while True:
         logger.info(f"Starting new processing cycle for {csv_filepath}...")
         
@@ -285,6 +287,34 @@ def main_loop(csv_filepath):
                 # last_gmail_monitor_run_time = current_time 
         else:
             logger.debug(f"Gmail monitor interval not yet reached. Next check in approx. {int(GMAIL_MONITOR_INTERVAL_SECONDS - (current_time - last_gmail_monitor_run_time))}s.")
+
+        # After successful email send
+        current_time = datetime.now(timezone.utc).isoformat()
+        message_id = sent_message['id']
+
+        try:
+            # 1. Update campaign_jobs
+            supabase_client.table("campaign_jobs").update({
+                "email_message_id": message_id
+            }).eq("id", job_id).execute()
+
+            # 2. Update engine_log
+            supabase_client.table("engine_log").insert({
+                "processed_at": current_time,
+                "email_message_id": message_id,
+                "campaign_jobs_id": job_id
+            }).execute()
+
+            # 3. Update lead table
+            supabase_client.table(lead_table_name).update({
+                "email_sent": True
+            }).eq("id", lead_id).execute()
+
+        except Exception as e:
+            logger.error(f"Failed to update records for job {job_id}: {str(e)}")
+
+        logger.info(f"Cycle finished. Sleeping for {POLLING_INTERVAL_SECONDS} seconds...")
+        time.sleep(POLLING_INTERVAL_SECONDS)
 
         logger.info(f"Cycle finished. Sleeping for {POLLING_INTERVAL_SECONDS} seconds...")
         time.sleep(POLLING_INTERVAL_SECONDS)
