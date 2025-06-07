@@ -1,12 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsContent } from '@/components/ui/tabs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useEngineControl } from '@/hooks/useEngineControl';
 
-// LogEntry is now primarily defined in useEngineControl hook, but keeping type here for clarity if needed.
 interface LogEntry {
   id: string;
   timestamp: string;
@@ -54,16 +50,14 @@ const EngineControlView = () => {
 
     return logData.map((log) => {
       let displayMessage = log.message;
-      // Attempt to parse and pretty-print if the message is a JSON string
       if (typeof displayMessage === 'string' && displayMessage.trim().startsWith('{')) {
         try {
           const parsedJson = JSON.parse(displayMessage);
           displayMessage = JSON.stringify(parsedJson, null, 2);
         } catch (e) {
-          // Not a valid JSON string, leave as is
+          // Not valid JSON
         }
       } else if (typeof displayMessage !== 'string') {
-        // For any non-string messages that might have slipped through
         displayMessage = JSON.stringify(displayMessage, null, 2);
       }
       
@@ -71,13 +65,10 @@ const EngineControlView = () => {
         <div
           key={log.id}
           className={`p-2 rounded ${
-            log.type === 'error'
-              ? 'bg-red-900/10 text-red-400'
-              : log.type === 'success'
-              ? 'bg-green-900/10 text-green-400'
-              : log.type === 'warning'
-              ? 'bg-yellow-900/10 text-yellow-400'
-              : 'bg-base-300'
+            log.type === 'error' ? 'bg-error/10 text-error-content' :
+            log.type === 'success' ? 'bg-success/10 text-success-content' :
+            log.type === 'warning' ? 'bg-warning/10 text-warning-content' :
+            'bg-base-300'
           }`}
         >
           <div className="flex justify-between text-xs opacity-70 mb-1">
@@ -103,43 +94,84 @@ const EngineControlView = () => {
   };
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader>
-        <CardTitle>Engine Control</CardTitle>
-        <div className="flex items-center space-x-2 mt-2">
-          <p>Status: <span className={`font-bold ${status === 'running' ? 'text-green-500' : 'text-red-500'}`}>{status}</span></p>
-          {campaigns.length > 0 && (
-            <>
-              <Button onClick={() => handleCampaignAction(startCampaign, campaigns[0].id)} disabled={status === 'running'}>Start</Button>
-              <Button onClick={() => handleCampaignAction(stopCampaign, activeCampaignId)} disabled={status !== 'running'}>Stop</Button>
-              <Button onClick={() => handleCampaignAction(resumeCampaign, activeCampaignId)} disabled={status !== 'paused'}>Resume</Button>
-              <Button onClick={() => clearLogs('all')} variant="destructive">Clear All Logs</Button>
-            </>
-          )}
+    <div className="card bg-base-100 shadow-xl h-full flex flex-col">
+      <div className="card-body p-4 flex flex-col h-full">
+        <div className="card-title flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+          <h2 className="text-xl font-bold">Engine Control</h2>
+          <div className="flex items-center space-x-2">
+            <p>Status: <span className={`font-bold ${status === 'running' ? 'text-success' : 'text-error'}`}>
+              {status}
+            </span></p>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="flex-grow flex flex-col">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-grow flex flex-col">
-          <TabsList>
-            <Tab value="engine">Engine Logs</Tab>
-            <Tab value="system">System Events</Tab>
-            <Tab value="jobs">Campaign Jobs</Tab>
-          </TabsList>
-          <div className="flex-grow bg-black/50 p-4 rounded-b-md overflow-y-auto h-96">
-            <TabsContent value="engine" className="h-full">
-              <div className="space-y-2">{renderLogs(logs.engine)}</div>
-            </TabsContent>
-            <TabsContent value="system" className="h-full">
-              <div className="space-y-2">{renderLogs(logs.system)}</div>
-            </TabsContent>
-            <TabsContent value="jobs" className="h-full">
-              <div className="space-y-2">{renderLogs(logs.jobs)}</div>
-            </TabsContent>
+        
+        <div className="flex flex-col flex-grow">
+          <div className="flex flex-wrap gap-2 mb-4">
+            {campaigns.length > 0 && (
+              <>
+                <button 
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleCampaignAction(startCampaign, campaigns[0].id)}
+                  disabled={status === 'running'}
+                >
+                  Start
+                </button>
+                <button 
+                  className="btn btn-error btn-sm"
+                  onClick={() => handleCampaignAction(stopCampaign, activeCampaignId)}
+                  disabled={status !== 'running'}
+                >
+                  Stop
+                </button>
+                <button 
+                  className="btn btn-warning btn-sm"
+                  onClick={() => handleCampaignAction(resumeCampaign, activeCampaignId)}
+                  disabled={status !== 'paused'}
+                >
+                  Resume
+                </button>
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => clearLogs('all')}
+                >
+                  Clear Logs
+                </button>
+              </>
+            )}
+          </div>
+          
+          <div className="tabs tabs-boxed bg-base-200 mb-2">
+            <button 
+              className={`tab ${activeTab === 'engine' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('engine')}
+            >
+              Engine Logs
+            </button>
+            <button 
+              className={`tab ${activeTab === 'system' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('system')}
+            >
+              System Events
+            </button>
+            <button 
+              className={`tab ${activeTab === 'jobs' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('jobs')}
+            >
+              Campaign Jobs
+            </button>
+          </div>
+          
+          <div className="bg-base-200 rounded-md p-4 flex-grow overflow-y-auto h-96">
+            <div className="space-y-2">
+              {activeTab === 'engine' && renderLogs(logs.engine)}
+              {activeTab === 'system' && renderLogs(logs.system)}
+              {activeTab === 'jobs' && renderLogs(logs.jobs)}
+            </div>
             <div ref={consoleEndRef} />
           </div>
-        </Tabs>
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </div>
   );
 };
 
