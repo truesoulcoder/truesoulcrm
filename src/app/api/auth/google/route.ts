@@ -1,42 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
-export async function GET(req: NextRequest) {
-  console.log('[API /auth/google] Initiating Google OAuth flow.');
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!supabaseUrl) {
-    return NextResponse.json({ error: 'Supabase URL not set' }, { status: 500 });
-  }
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  // Determine the base URL for redirects
-  const appBaseUrl = req.nextUrl.origin || process.env.NEXT_PUBLIC_SITE_URL || 
-    (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : null);
-    
-  if (!appBaseUrl) {
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${requestUrl.origin}/auth/callback`,
+        scopes: 'openid email profile',
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+        protocol: 'oauth2',
+        version: 'v2'
+      },
+    });
+
+    if (error) throw error;
+    return NextResponse.redirect(data.url);
+  } catch (error) {
     return NextResponse.json(
-      { error: 'App base URL configuration error for OAuth callback' }, 
+      { error: 'Failed to initiate Google OAuth: ' + error.message },
       { status: 500 }
     );
   }
-
-  // Path in your app that handles the OAuth hash
-  const appFinalRedirectUri = new URL('/', appBaseUrl).href;
-  
-  // Scopes for Google OAuth
-  const scopes = [
-    'openid',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile'
-  ];
-
-  const params = new URLSearchParams({
-    provider: 'google',
-    redirect_to: appFinalRedirectUri,
-    scopes: scopes.join(' ')
-  });
-
-  return NextResponse.redirect(
-    `${supabaseUrl}/auth/v1/authorize?${params.toString()}`
-  );
-  
 }
-

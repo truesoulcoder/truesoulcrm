@@ -1,13 +1,23 @@
 import { createServerClient } from '@supabase/ssr';
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
-import type { NextRequest } from 'next/server';
+const protectedRoutes = ['/dashboard', '/settings'];
+const publicRoutes = ['/login', '/signup', '/auth/callback', '/auth/reset-password'];
 
 export async function middleware(request: NextRequest) {
-  console.log(`[Middleware] Processing path: ${request.nextUrl.pathname}`);
+  const { pathname } = request.nextUrl;
+  console.log(`[Middleware] Processing path: ${pathname}`);
+
+  // Skip middleware for static files and API routes
+  if (
+    pathname.startsWith('/_next/static/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/favicon.ico')
+  ) {
+    return NextResponse.next();
+  }
+
   const response = NextResponse.next();
-  const url = request.nextUrl;
-  const path = url.pathname;
 
   // Create a Supabase client configured to use cookies
   const supabase = createServerClient(
@@ -32,15 +42,22 @@ export async function middleware(request: NextRequest) {
 
   // Get the user's session
   const { data: { session } } = await supabase.auth.getSession();
-  const isAuthPage = path === '/' || path === '/login' || path === '/signup';
-  
-  // If user is not signed in and the current path is not an auth page, redirect to login
-  if (!session && !isAuthPage) {
-    return NextResponse.redirect(new URL('/', request.url));
+  const isLoggedIn = !!session;
+
+  // Handle auth callback
+  if (pathname.startsWith('/auth/callback')) {
+    return response;
   }
 
-  // If user is signed in and the current path is an auth page, redirect to dashboard
-  if (session && isAuthPage) {
+  // Redirect to login if user is not logged in and trying to access protected route
+  if (!isLoggedIn && protectedRoutes.some(route => pathname.startsWith(route))) {
+    const redirectUrl = new URL('/login', request.url);
+    redirectUrl.searchParams.set('redirectedFrom', pathname);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Redirect to dashboard if user is logged in and trying to access auth route
+  if (isLoggedIn && publicRoutes.some(route => pathname.startsWith(route))) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
