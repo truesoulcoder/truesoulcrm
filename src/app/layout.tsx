@@ -1,16 +1,8 @@
 import { Inter } from 'next/font/google';
-
 import { UserProvider } from '@/contexts/UserContext';
-
 import ClientLayout from './layout-client'; // Import the client layout
-
 import type { Metadata } from 'next';
-
-
 import './globals.css'; // Uses src/app/globals.css
-
-
-
 
 const inter = Inter({ subsets: ['latin'] });
 

@@ -17,7 +17,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const response = NextResponse.next();
+  let response = NextResponse.next();
 
   // Create a Supabase client configured to use cookies
   const supabase = createServerClient(
@@ -28,13 +28,13 @@ export async function middleware(request: NextRequest) {
         get(name: string) {
           return request.cookies.get(name)?.value;
         },
-        set(name: string, value: string, options: any) {
-          request.cookies.set({ name, value, ...options });
+        set(name: string, value: string, options) {
+          // Use response cookies for setting
           response.cookies.set({ name, value, ...options });
         },
-        remove(name: string, options: any) {
-          request.cookies.delete(name);
-          response.cookies.delete(name);
+        remove(name: string, options) {
+          // Use response cookies for removal
+          response.cookies.set({ name, value: '', ...options });
         },
       },
     }

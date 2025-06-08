@@ -1,10 +1,9 @@
 "use client";
 
-import { Session, User } from '@supabase/supabase-js';
+import { Session, Subscription, User } from '@supabase/supabase-js';
 import { useRouter, usePathname } from 'next/navigation';
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 
-import { getSupabaseSession } from '@/lib/auth';
 import { supabase } from '@/lib/supabase/client';
 
 interface UserContextType {
@@ -21,31 +20,18 @@ interface ErrorWithMessage {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-const getUserRole = (user: User | null): string => {
-  if (!user) {
-    console.log("[getUserRole] No user object, returning 'guest'.");
-    return 'guest';
-  }
-
-  const userEmail = user.email?.toLowerCase() || '';
-  const allowedDomain = '@truesoulpartners.com';
-  
-  if (!userEmail.endsWith(allowedDomain)) {
-    console.log(`[getUserRole] Unauthorized email domain for user: ${userEmail}`);
-    return 'guest';
-  }
-
-  if (user.app_metadata?.role) {
-    const roleFromMeta = user.app_metadata.role as string;
-    console.log(`[getUserRole] Found role in app_metadata: '${roleFromMeta}'`);
-    
-    if (['superadmin', 'user', 'guest'].includes(roleFromMeta)) {
-      return roleFromMeta;
+const getUserRole = async (userId: string) => {
+  try {
+    const response = await fetch(`/api/user/${userId}/role`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch user role: ${response.status}`);
     }
+    const { role } = await response.json();
+    return role;
+  } catch (error) {
+    console.error('[getUserRole] Unexpected error:', error);
+    return null;
   }
-  
-  console.log("[getUserRole] No valid role found. Defaulting to 'user' for domain user.");
-  return 'user'; // Default to 'user' for valid domain users
 };
 
 function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
@@ -72,6 +58,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname() || '';
+  const authListenerRef = useRef<Subscription>(null);
 
   useEffect(() => {
     const isMounted = true;
@@ -86,7 +73,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         switch (event) {
           case 'SIGNED_IN':
             if (newSession?.user) {
-              const userRole = getUserRole(newSession.user);
+              const userRole = await getUserRole(newSession.user.id);
               setSession(newSession);
               setUser(newSession.user);
               setRole(userRole);
@@ -110,7 +97,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             
           case 'USER_UPDATED':
             if (newSession?.user) {
-              const userRole = getUserRole(newSession.user);
+              const userRole = await getUserRole(newSession.user.id);
               setUser(newSession.user);
               setRole(userRole);
             }
@@ -124,6 +111,9 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       }
     });
 
+    // Store listener for cleanup
+    authListenerRef.current = authListener;
+
     const initializeAuth = async () => {
       try {
         const {
@@ -135,7 +125,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
         setSession(session);
         setUser(session?.user ?? null);
-        setRole(session?.user ? getUserRole(session.user) : null);
+        setRole(session?.user ? await getUserRole(session.user.id) : null);
         setError(null);
       } catch (err) {
         console.error("Error initializing auth:", err);
@@ -151,23 +141,13 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
     void initializeAuth();
 
-//    return () => {
-//      isMounted = false;
-//      const subscription = authListener?.subscription;
-//      if (subscription?.unsubscribe) {
-//        try {
-//          const result = subscription.unsubscribe();
-//          if (typeof result?.catch === 'function') {
-//            result.catch((error: unknown) => {
-//              console.error("Error unsubscribing auth listener:", getErrorMessage(error));
-//            });
-//          }
-//        } catch (err: unknown) {
-//          console.error('Error during auth cleanup:', getErrorMessage(err));
-//        }
-//      }
-//    };
-  }, [pathname, router]);
+    // Cleanup function
+    return () => {
+      if (authListenerRef.current) {
+        authListenerRef.current.unsubscribe();
+      }
+    };
+  }, [router, pathname]);
 
   if (isLoading && !session) {
     return (

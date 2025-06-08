@@ -1,31 +1,43 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
+import { UserContext } from '@/contexts/UserContext';
+import { createClient } from '@supabase/supabase-js';
 
-import { supabase } from '@/lib/supabase/client';
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
+async function invokeSetRole() {
+  const { data, error } = await supabase.functions.invoke('set-truesoul-role', {
+    body: { name: 'Functions' },
+  });
+
+  if (error) {
+    console.error('Function invocation error:', error);
+    throw new Error(`Function failed: ${error.message}`);
+  }
+  
+  return data;
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const { user, loading } = useContext(UserContext);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    // If user is already logged in, redirect to dashboard
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        router.replace('/dashboard');
-      }
-    };
-    
-    void checkUser();
-  }, [router]);
+    if (user && !loading) {
+      router.push('/dashboard');
+    }
+  }, [user, loading, router]);
 
   const handleLogin = async () => {
     try {
       setIsLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error, session } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
@@ -37,6 +49,10 @@ export default function LoginPage() {
       });
       
       if (error) throw error;
+      if (session) {
+        // Redirect to dashboard after successful sign-in
+        router.push('/dashboard');
+      }
     } catch (err) {
       console.error('Error signing in with Google:', err);
     } finally {
@@ -50,7 +66,7 @@ export default function LoginPage() {
         <div className="card-body items-center text-center p-10">
           {/* Logo */}
           <div className="mb-8">
-            <div className="text-4xl font-bold text-primary">CRM Admin</div>
+            <div className="text-4xl font-bold text-primary">True Soul CRM</div>
           </div>
           
           {/* Google Sign In Button */}

@@ -1,48 +1,28 @@
-// src/lib/supabase/server.ts
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-export async function createClient() { 
-  const cookieStore = await cookies();
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase environment variables for client');
-  }
-
+export const createClient = (cookieStore: ReturnType<typeof cookies>) => {
   return createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll()
         },
-        set(name: string, value: string, options: CookieOptions) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set(name, value, options);
-          } catch (error: unknown) { 
-            if (process.env.NODE_ENV === 'development') {
-              console.warn(`(Client) Failed to set cookie '${name}':`, error instanceof Error ? error.message : error);
-            }
-          }
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set(name, '', options);
-          } catch (error: unknown) { 
-            if (process.env.NODE_ENV === 'development') {
-              console.warn(`(Client) Failed to remove cookie '${name}':`, error instanceof Error ? error.message : error);
-            }
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
           }
         },
       },
-    }
+    },
   );
-}
-
+};
 // Function to create a Supabase client for server-side admin operations (uses service_role_key)
 export async function createAdminServerClient() { 
   const cookieStore = await cookies(); // Renamed adminCookieStore to cookieStore for consistency
