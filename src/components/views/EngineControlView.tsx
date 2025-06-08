@@ -9,6 +9,7 @@ import type { Database } from '@/types';
 type Campaign = Database['public']['Tables']['campaigns']['Row'];
 type CampaignState = Database['public']['Tables']['campaign_engine_state']['Row'];
 type JobLog = Database['public']['Tables']['job_logs']['Row'];
+type CampaignStatus = 'running' | 'paused' | 'stopped';
 
 // UI Component for individual Bento boxes
 const BentoBox = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
@@ -26,8 +27,7 @@ const EngineControlView = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const selectedCampaignState = selectedCampaignId ? engineStates.get(selectedCampaignId) : null;
-  const selectedStatus = selectedCampaignState?.status || 'stopped';
+  const [selectedStatus, setSelectedStatus] = useState<CampaignStatus>('stopped');
 
   // Fetch initial data
   const fetchData = useCallback(async () => {
@@ -94,16 +94,22 @@ const EngineControlView = () => {
         payload => {
           const newState = payload.new;
           setEngineStates(prev => new Map(prev).set(newState.campaign_id, newState));
+          setSelectedStatus(newState.status as CampaignStatus);
         }
       ).subscribe();
     
-    // This subscription needs to be more sophisticated if we want live logs for the selected campaign
+    // Targeted subscription for logs of the selected campaign
     const logChannel = supabase
         .channel('job-log-changes')
         .on<JobLog>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_logs' },
             payload => {
-                // A more advanced implementation would check if the new log belongs to the selected campaign
-                fetchLogs(selectedCampaignId || '');
+                if (selectedCampaignId && payload.new.campaign_id === selectedCampaignId) {
+                    // Option 1: Just append the new log if we have logs state
+                    // setLogs(prev => [...prev, payload.new]);
+                    
+                    // Option 2: Refetch logs to ensure consistency
+                    fetchLogs(selectedCampaignId);
+                }
             }
         ).subscribe();
 

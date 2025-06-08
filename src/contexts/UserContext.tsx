@@ -1,4 +1,3 @@
-// src/contexts/UserContext.tsx
 "use client"; // Add this directive at the very top
 
 import { Session, Subscription, User } from '@supabase/supabase-js';
@@ -11,7 +10,7 @@ import { supabase } from '@/lib/supabase/client';
 interface UserContextType {
   user: User | null;
   session: Session | null;
-  role: string | null;
+  role: string | null; // This will hold the user_role
   isLoading: boolean;
   error: string | null;
   // Expose full name and avatar URL directly from user_metadata
@@ -30,7 +29,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null); // This will hold the user_role
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const authListenerRef = useRef<Subscription | null>(null);
@@ -58,8 +57,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           setUser(currentUser);
 
           if (currentUser) {
-            // Directly use the role from app_metadata set by the Edge Function
-            const userRoleFromMetadata = (currentUser.app_metadata?.role as string) || null;
+            // FIX: Read 'user_role' from 'user_metadata'
+            const userRoleFromMetadata = (currentUser.user_metadata?.user_role as string) || null;
             setRole(userRoleFromMetadata);
 
             // Get full_name and avatar_url directly from user_metadata
@@ -68,9 +67,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
             setFullName(userFullName as string);
             setAvatarUrl(userAvatarUrl as string);
-
-            // Removed: supabase.from('profiles') query as the table no longer exists.
-            // All necessary data (role, full_name, avatar_url) is now fetched from auth.users directly.
 
           }
         }
@@ -101,8 +97,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           setUser(newUser);
 
           if (newUser) {
-            // Directly use the role from app_metadata set by the Edge Function
-            const userRoleFromMetadata = (newUser.app_metadata?.role as string) || null;
+            // FIX: Read 'user_role' from 'user_metadata'
+            const userRoleFromMetadata = (newUser.user_metadata?.user_role as string) || null;
             setRole(userRoleFromMetadata);
 
             // Get full_name and avatar_url directly from user_metadata
@@ -111,9 +107,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
             setFullName(userFullName as string);
             setAvatarUrl(userAvatarUrl as string);
-
-            // Removed: supabase.from('profiles') query as the table no longer exists.
-            // All necessary data (role, full_name, avatar_url) is now fetched from auth.users directly.
 
           } else {
             // User logged out
