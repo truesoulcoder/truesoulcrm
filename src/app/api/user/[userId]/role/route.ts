@@ -1,6 +1,6 @@
 // src/app/api/user/[userId]/role/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase/admin'; // Import the centralized admin client
 
 type SupabaseAdminError = {
   status?: number;
@@ -12,28 +12,12 @@ export async function GET(
   { params }: { params: { userId: string } }
 ) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    // Explicitly check for environment variables at runtime
-    if (!supabaseUrl || !serviceRoleKey) {
-      console.error("[API /user/role] Error: Server-side Supabase environment variables are not set.");
-      return new NextResponse(
-        JSON.stringify({ error: 'Server configuration error: Missing Supabase credentials.' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Create the Supabase admin client inside the handler
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
-
     const { userId } = params;
     if (!userId) {
       return new NextResponse(JSON.stringify({ error: 'User ID is required.' }), { status: 400 });
     }
     
+    // Use the imported supabaseAdmin client
     const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
     
     if (error) {
