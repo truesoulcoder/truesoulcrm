@@ -11,7 +11,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { LeadFormModal } from '@/components/leads/LeadFormModal';
+import LeadFormModal from '@/components/leads/LeadFormModal';
 import { createCrmLeadAction, updateCrmLeadAction, deleteCrmLeadAction } from '@/app/crm/actions';
 import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/types';
