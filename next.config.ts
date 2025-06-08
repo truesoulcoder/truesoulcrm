@@ -1,4 +1,6 @@
-/** @type {import('next').NextConfig} */
+// Fixed: Only one 'images' key, all domains and remotePatterns merged, deduped.
+// Modern Next.js config, ESM style
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,8 +11,27 @@ const nextConfig = {
   reactStrictMode: false,
   experimental: {
     serverActions: {
-      allowedOrigins: ['localhost:3000']
-    }
+      allowedOrigins: ['localhost:3000'],
+    },
+  },
+  images: {
+    domains: [
+      'truesoulpartners.vercel.app',
+    ],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'lefvtgqockzqkasylzwb.supabase.co',
+        port: '',
+        pathname: '/storage/v1/object/public/media/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+        port: '',
+        pathname: '/**',
+      },
+    ],
   },
   webpack: (config, { isServer, dev }) => {
     if (isServer) {
@@ -26,7 +47,6 @@ const nextConfig = {
           return true;
         });
       }
-
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -39,38 +59,18 @@ const nextConfig = {
         dgram: false,
       };
     }
-
     if (!dev) {
       config.module.rules.push({
-        test: /\.map$/, 
-        use: 'ignore-loader'
+        test: /\.map$/,
+        use: 'ignore-loader',
       });
     }
-    
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': path.resolve(__dirname, 'src'),
     };
-    
     return config;
   },
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'lefvtgqockzqkasylzwb.supabase.co',
-        port: '',
-        pathname: '/storage/v1/object/public/media/**',
-      },
-    ],
-  },
-
   output: 'standalone',
   async rewrites() {
     return [
@@ -78,7 +78,7 @@ const nextConfig = {
         source: '/api/:path*',
         destination: 'http://localhost:3000/api/:path*',
       },
-    ]
+    ];
   },
   typescript: {
     ignoreBuildErrors: true,

@@ -3,6 +3,7 @@ import { UserProvider } from '@/contexts/UserContext';
 import ClientLayout from './layout-client';
 import type { Metadata } from 'next';
 import './globals.css';
+import EdgeFunctionTriggerProvider from '@/components/EdgeFunctionTriggerProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -26,6 +27,7 @@ export default function RootLayout({
   return (
     <html data-theme="dark" lang="en" suppressHydrationWarning>
       <body className={inter.className}>
+      <EdgeFunctionTriggerProvider />
         <UserProvider>
           <ClientLayout>{children}</ClientLayout>
         </UserProvider>
