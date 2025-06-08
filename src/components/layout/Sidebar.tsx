@@ -6,10 +6,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState } from 'react';
-
 import { LetterFx } from '@/components/ui/LetterFx';
-import { useUser } from '@/contexts/UserContext'; // Added UserContext import
-
+import { useUser } from '@/contexts/UserContext';
 
 type ViewPath = {
   dashboard: '/dashboard';
@@ -38,25 +36,10 @@ const menuItems: MenuItem[] = [
 ];
 
 const Sidebar: React.FC = () => {
-  const { role, isLoading: userLoading, user } = useUser(); // Get role and loading state
-  // TODO: Replace this with actual logic to fetch/get companyLogoUrl from settings
-  const [companyLogoUrl] = useState<string | null>(null);
-  // TODO: Replace this with actual logic to fetch/get companyName from settings
+  const { role, user } = useUser(); // Get role and loading state
   const [companyName] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
   const handleLogoError = () => setLogoError(true);
-
-  // Example: Fetch settings on component mount (you'll need to adapt this)
-  // useEffect(() => {
-  //   const fetchSettings = async () => {
-  //     // Replace with your actual settings fetching logic
-  //     // const settings = await getAppSettings(); 
-  //     // if (settings && settings.logoUrl) {
-  //     //   setCompanyLogoUrl(settings.logoUrl);
-  //     // }
-  //   };
-  //   fetchSettings();
-  // }, []);
   const pathname = usePathname();
 
   // Map CrmView to route paths
@@ -71,29 +54,19 @@ const Sidebar: React.FC = () => {
   };
 
   const getFilteredMenuItems = () => {
-    if (!role) return []; // Or a default minimal menu for guests if sidebar is shown before full auth
-
-    if (role === 'superadmin') { // Changed to lowercase
-      return menuItems; // superadmin sees all items
+    if (!role) {
+      return []; // No role, no menu items
     }
-    if (role === 'guest') { // Changed to lowercase
-      return menuItems.filter(item => item.view === 'crm'); // crmuser only sees 'CRM'
-      // To add 'Settings' for crmuser as well:
-      // return menuItems.filter(item => item.view === 'crm' || item.view === 'settings'); 
+  
+    if (role === 'superadmin') {
+      return menuItems; // Superadmin sees all items
+    } else {
+      // For any other role (not superadmin), show only CRM and Dashboard
+      return menuItems.filter(item => item.view === 'crm' || item.view === 'dashboard');
     }
-    return []; // Default to no items if role is unrecognized or guest within an authenticated shell
   };
 
   const visibleMenuItems = getFilteredMenuItems();
-
-  if (userLoading) {
-    // Optional: Render a loading state or null while user role is being determined
-    return (
-      <aside className="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col items-center justify-center">
-        <span className="loading loading-dots loading-lg"></span>
-      </aside>
-    );
-  }
 
   // If no user (e.g. logout initiated, session cleared but component still briefly rendered)
   // or if no visible menu items for the role (e.g. 'guest' role somehow gets here)
@@ -103,7 +76,7 @@ const Sidebar: React.FC = () => {
     return (
         <aside className="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col">
             <div className="flex items-center justify-center mb-8">
-                <Image src={'/logo.png'} alt={'Company Logo'} width={120} height={40} priority />
+                <Image src={'/logo.png'} alt={'Company Logo'} width={210} height={197} priority />
             </div>
             <div className="mt-auto">
                 <p className="text-xs text-center text-base-content/70">
@@ -119,11 +92,11 @@ const Sidebar: React.FC = () => {
       <div className="flex items-center justify-center mb-8">
         {logoError ? (
           <div className="text-2xl font-bold text-primary">
-            {companyName || 'True Soul'}
+            {companyName || 'True Soul Partners LLC'}
           </div>
         ) : (
           <Image 
-            src={process.env.NEXT_PUBLIC_APP_LOGO?.replace('//media//', '/media/') || '/logo.png'}
+            src={process.env.NEXT_PUBLIC_APP_LOGO || '/logo.png'}
             alt="Company Logo"
             width={210}
             height={197}
@@ -152,7 +125,7 @@ const Sidebar: React.FC = () => {
       </ul>
       <div className="mt-auto">
         <p className="text-xs text-center text-base-content/50">
-          &copy; {new Date().getFullYear()} {companyName || 'True Soul Partners'}
+          &copy; {new Date().getFullYear()} {companyName || 'True Soul Partners LLC'}
         </p>
       </div>
     </aside>

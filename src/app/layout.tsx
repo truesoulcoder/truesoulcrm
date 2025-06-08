@@ -1,8 +1,8 @@
 import { Inter } from 'next/font/google';
 import { UserProvider } from '@/contexts/UserContext';
-import ClientLayout from './layout-client'; // Import the client layout
+import ClientLayout from './layout-client';
 import type { Metadata } from 'next';
-import './globals.css'; // Uses src/app/globals.css
+import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -27,7 +27,7 @@ export default function RootLayout({
     <html data-theme="dark" lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <UserProvider>
-          <ClientLayout>{children}</ClientLayout> {/* ClientLayout wraps children and includes MainAppShell */}
+          <ClientLayout>{children}</ClientLayout>
         </UserProvider>
       </body>
     </html>

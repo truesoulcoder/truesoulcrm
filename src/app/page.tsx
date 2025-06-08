@@ -9,16 +9,11 @@ export default function LoginPage() {
   const { user, role, isLoading, error: userContextError } = useUser();
   const router = useRouter();
 
-  // This function initiates the server-side Google OAuth flow.
   const handleGoogleLogin = () => {
-    // Redirects the user to the backend route that starts the Supabase OAuth process.
     window.location.href = '/api/auth/google';
   };
 
   useEffect(() => {
-    // This effect is now redundant because of the RequireAuth component,
-    // but as a fallback, we can keep a simple version.
-    // The RequireAuth component will handle redirection more effectively.
     if (!isLoading && user && role) {
       if (role === 'superadmin' || role === 'admin') {
         router.replace('/dashboard');
@@ -29,8 +24,6 @@ export default function LoginPage() {
   }, [user, role, isLoading, router]);
 
 
-  // Display a loading screen while the initial user/role check is in progress.
-  // This is handled globally by UserProvider and RequireAuth, but good for initial page load.
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-base-100">
@@ -40,8 +33,6 @@ export default function LoginPage() {
     );
   }
 
-  // The RequireAuth component will redirect authenticated users away from this page.
-  // This UI will only be visible to unauthenticated users.
   return (
     <div className="hero min-h-screen bg-base-200">
       <div className="hero-content text-center">
