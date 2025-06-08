@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient } from '@/lib/supabase/server';
 
-// Helper function to get user role
+// Helper function to get user role (this is already good as it checks app_metadata)
 function getUserRole(user: any): string {
   // First check raw_app_meta_data.role
   if (user?.raw_app_meta_data?.role) {
@@ -21,13 +21,12 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError || !user) {
 
-      return NextResponse.json({ 
-        name: null, 
+    if (userError || !user) {
+      return NextResponse.json({
+        name: null,
         picture: null,
-        isSuperAdmin: false 
+        isSuperAdmin: false
       }, { status: 401 });
     }
 
@@ -35,20 +34,18 @@ export async function GET(req: NextRequest) {
     const userRole = getUserRole(user);
     const isSuperAdmin = userRole === 'superadmin';
 
-    // Get the user's profile data
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('full_name, avatar_url')
-      .eq('id', user.id)
-      .single();
+    // Directly use user's metadata from auth.users, as profiles table is gone.
+    let currentFullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || user.email;
+    let currentAvatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
 
     // If we have a Google OAuth user but no picture, try to get it from Google
-    if (user.app_metadata?.provider === 'google' && !profile?.avatar_url) {
+    // We'll update user_metadata directly instead of profiles table.
+    if (user.app_metadata?.provider === 'google' && !currentAvatarUrl) {
       try {
         // Get the access token from the session
         const { data: { session } } = await supabase.auth.getSession();
         const accessToken = session?.provider_token;
-        
+
         if (accessToken) {
           // Fetch user info from Google
           const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -56,56 +53,53 @@ export async function GET(req: NextRequest) {
               Authorization: `Bearer ${accessToken}`
             }
           });
-          
+
           if (response.ok) {
             const googleUser = await response.json();
-            
-            // Update the profile with the Google picture
-            await supabase
-              .from('profiles')
-              .update({ 
-                avatar_url: googleUser.picture,
-                full_name: googleUser.name || profile?.full_name
-              })
-              .eq('id', user.id);
-            
-            // Return the updated profile
-            return NextResponse.json({
-              name: googleUser.name || profile?.full_name || user.email,
-              picture: googleUser.picture,
-              isSuperAdmin
+            const newAvatarUrl = googleUser.picture;
+            const newFullName = googleUser.name;
+
+            // Prepare updated user_metadata
+            const updatedMetadata = {
+              ...user.user_metadata,
+              avatar_url: newAvatarUrl,
+              full_name: newFullName || currentFullName // Prioritize new Google name, fallback to existing or derived
+            };
+
+            // Update the user's metadata directly in auth.users
+            const { error: updateError } = await supabase.auth.updateUser({
+              data: updatedMetadata
             });
+
+            if (updateError) {
+              console.error('Error updating user metadata via API:', updateError.message);
+              // Continue with current values if update fails
+            } else {
+              // Update local variables with new data
+              currentFullName = updatedMetadata.full_name;
+              currentAvatarUrl = updatedMetadata.avatar_url;
+            }
           }
         }
       } catch (error) {
-        console.error('Error fetching Google profile:', error);
-        // Continue to return the existing profile if there's an error
+        console.error('Error fetching Google profile for update:', error);
+        // Continue to return the existing (or derived) profile if there's an error
       }
     }
 
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      // Fall back to user_metadata if profile fetch fails
-      const { full_name, avatar_url } = user.user_metadata || {};
-      return NextResponse.json({
-        name: full_name || user.email,
-        picture: avatar_url || null,
-        isSuperAdmin
-      });
-    }
-
+    // Return the consolidated data
     return NextResponse.json({
-      name: profile?.full_name || user.email,
-      picture: profile?.avatar_url || null,
+      name: currentFullName,
+      picture: currentAvatarUrl,
       isSuperAdmin
     });
   } catch (error) {
     console.error('Error in profile API:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to fetch profile',
         isSuperAdmin: false
-      }, 
+      },
       { status: 500 }
     );
   }

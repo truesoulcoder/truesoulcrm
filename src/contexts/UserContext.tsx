@@ -5,7 +5,7 @@ import { Session, Subscription, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 
 import { supabase } from '@/lib/supabase/client';
-import type { Tables } from '@/types';
+import type { Tables } from '@/types'; // This might still be needed for other types, but not for profiles anymore
 
 // Define the shape of the user context
 interface UserContextType {
@@ -14,6 +14,9 @@ interface UserContextType {
   role: string | null;
   isLoading: boolean;
   error: string | null;
+  // Expose full name and avatar URL directly from user_metadata
+  fullName: string | null;
+  avatarUrl: string | null;
 }
 
 // Create the context with an undefined default value
@@ -30,6 +33,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const authListenerRef = useRef<Subscription | null>(null);
+
+  // New state for full name and avatar URL
+  const [fullName, setFullName] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
 
   useEffect(() => {
     let isMounted = true;
@@ -52,24 +60,18 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           if (currentUser) {
             // Directly use the role from app_metadata set by the Edge Function
             const userRoleFromMetadata = (currentUser.app_metadata?.role as string) || null;
-            setRole(userRoleFromMetadata); // Set role here
+            setRole(userRoleFromMetadata);
 
-            console.log("Before attempting to fetch profile (for other data), user ID:", currentUser.id);
-            // Fetch profile for other data like full_name or avatar_url, but do not rely on it for role
-            // Use .maybeSingle() to gracefully handle cases where a profile might not exist (though ideally it should)
-            const { data: profile, error: profileError } = await supabase
-              .from('profiles')
-              .select('full_name, avatar_url') // Select only non-role fields from profile
-              .eq('id', currentUser.id)
-              .maybeSingle(); // Use maybeSingle to avoid error if no profile is found
+            // Get full_name and avatar_url directly from user_metadata
+            const userFullName = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || null;
+            const userAvatarUrl = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null;
 
-            if (profileError) {
-              console.error("Error fetching user profile (non-critical if only profile data is missing):", profileError.message);
-              // Role is already set from app_metadata, so no need to change it here.
-              // Handle other profile data if needed, e.g., set default full_name if profile is missing.
-            } else if (profile) {
-              // You might want to do something with profile data here, e.g., combine with user object
-            }
+            setFullName(userFullName as string);
+            setAvatarUrl(userAvatarUrl as string);
+
+            // Removed: supabase.from('profiles') query as the table no longer exists.
+            // All necessary data (role, full_name, avatar_url) is now fetched from auth.users directly.
+
           }
         }
       } catch (err) {
@@ -101,31 +103,24 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           if (newUser) {
             // Directly use the role from app_metadata set by the Edge Function
             const userRoleFromMetadata = (newUser.app_metadata?.role as string) || null;
-            setRole(userRoleFromMetadata); // Set role here
+            setRole(userRoleFromMetadata);
 
-            console.log("New user ID in onAuthStateChange:", newUser.id);
-            // Fetch profile for other data like full_name or avatar_url
-            console.log("Before calling supabase.from('profiles').select('full_name, avatar_url').eq('id', newUser.id).maybeSingle() in onAuthStateChange");
-            const { data: profile, error: profileError } = await supabase
-              .from('profiles')
-              .select('full_name, avatar_url') // Select non-role fields
-              .eq('id', newUser.id)
-              .maybeSingle(); // Use maybeSingle to avoid error if no profile is found
+            // Get full_name and avatar_url directly from user_metadata
+            const userFullName = newUser.user_metadata?.full_name || newUser.user_metadata?.name || newUser.email?.split('@')[0] || null;
+            const userAvatarUrl = newUser.user_metadata?.avatar_url || newUser.user_metadata?.picture || null;
 
-            console.log("After calling supabase.from('profiles').select('full_name, avatar_url').eq('id', newUser.id).maybeSingle() in onAuthStateChange");
-            console.log("Profile in onAuthStateChange:", profile);
-            console.log("Profile error in onAuthStateChange:", profileError);
+            setFullName(userFullName as string);
+            setAvatarUrl(userAvatarUrl as string);
 
-            if (profileError) {
-              console.error("Error fetching profile on auth change (non-critical):", profileError.message);
-              // Role is already set from app_metadata.
-            } else if (profile) {
-              // Handle other profile data
-            }
+            // Removed: supabase.from('profiles') query as the table no longer exists.
+            // All necessary data (role, full_name, avatar_url) is now fetched from auth.users directly.
+
           } else {
             // User logged out
             console.log("User logged out");
             setRole(null);
+            setFullName(null);
+            setAvatarUrl(null);
           }
           console.log("Before setIsLoading(false) in onAuthStateChange");
           setIsLoading(false);
@@ -147,6 +142,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     role,
     isLoading,
     error,
+    fullName, // Expose new state
+    avatarUrl, // Expose new state
   };
 
   // Render a loading state until the initial session check is complete
