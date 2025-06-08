@@ -16,7 +16,7 @@ const nextConfig = {
   },
   images: {
     domains: [
-      'truesoulpartners.vercel.app',
+      'truesoulpartners.vercel.app', 'localhost:3000',
     ],
     remotePatterns: [
       {
