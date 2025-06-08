@@ -2,6 +2,13 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // Skip middleware for static files
+  if (request.nextUrl.pathname.startsWith('/_next/') || 
+      request.nextUrl.pathname.includes('.') || 
+      request.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next()
+  }
+
   console.log(`Middleware triggered for URL: ${request.url}, Method: ${request.method}`);
   let response = NextResponse.next({
     request: {
@@ -34,7 +41,7 @@ export async function middleware(request: NextRequest) {
               headers: request.headers,
             },
           })
-          response.cookies.delete(name, options)
+          response.cookies.delete({ name, ...options })
         },
       },
     }

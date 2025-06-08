@@ -3,9 +3,9 @@
 
 import { Session, Subscription, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { supabase } from '@/lib/supabase/client';
-import type { Tables } from '@/types'; // This might still be needed for other types, but not for profiles anymore
 
 // Define the shape of the user context
 interface UserContextType {
@@ -27,6 +27,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
  * It handles fetching the user's session and role, and listens for auth state changes.
  */
 export const UserProvider = ({ children }: { children: ReactNode }) => {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -37,7 +38,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   // New state for full name and avatar URL
   const [fullName, setFullName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-
 
   useEffect(() => {
     let isMounted = true;
@@ -136,6 +136,18 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isLoading) {
+      if (session) {
+        router.push('/dashboard');
+      } else {
+        router.push('/login');
+      }
+    }
+  }, [session, isLoading, router]);
+
+  const safeAvatarUrl = avatarUrl || '/default-avatar.png';
+
   const value = {
     session,
     user,
@@ -143,7 +155,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     isLoading,
     error,
     fullName, // Expose new state
-    avatarUrl, // Expose new state
+    avatarUrl: safeAvatarUrl, // Expose new state
   };
 
   // Render a loading state until the initial session check is complete

@@ -1,2 +1,2 @@
 # truesoulcrm
-creating the damn thing again from square one
+serverless version of true soul crm
