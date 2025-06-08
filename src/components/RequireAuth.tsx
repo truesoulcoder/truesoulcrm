@@ -1,133 +1,88 @@
 "use client";
 
-import Head from 'next/head';
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useRef, ReactNode } from "react";
-
+import { useEffect, ReactNode, useState } from "react";
 import { useUser } from "@/contexts/UserContext";
 
-// Define public paths that don't require authentication
-const publicPaths = ['/'];
+// An array of paths that do not require authentication.
+const publicPaths = ['/']; 
 
-// Define role-based redirects
-const getRedirectPath = (role: string | null, currentPath: string): string | null => {
-  // If user is a guest, only allow access to /crm path
-  if (role === 'guest') {
-    return currentPath === '/crm' ? null : '/crm';
-  }
-  
-  // If user is authenticated (has a role) and is on the login page, redirect to dashboard
-  if (role && role !== 'guest' && currentPath === '/') {
-    return '/dashboard';
-  }
-  
-  // If user has no role and is not on the login page, redirect to login
-  if (!role && currentPath !== '/') {
-    return '/';
-  }
-  
-  return null;
-};
+// A loading component to be displayed while checking auth status.
+const AuthLoading = () => (
+  <div className="flex items-center justify-center h-screen text-center">
+    <p className="text-lg">Loading application...</p>
+    <span className="loading loading-spinner loading-lg ml-2"></span>
+  </div>
+);
 
+/**
+ * A client component that wraps protected routes to enforce authentication and role-based access.
+ * It redirects users based on their session status and role.
+ * @param {ReactNode} children - The child components to render if authentication is successful.
+ */
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, role, isLoading, error: userContextError } = useUser();
-
-  // Track if we've already handled the redirect
-  const redirectHandledRef = useRef(false);
+  const { user, role, isLoading: isUserContextLoading, error } = useUser();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
-    if (isLoading || redirectHandledRef.current) return;
-    
-    // Handle redirection based on authentication status and role
+    // Wait until the user context has finished loading.
+    if (isUserContextLoading) {
+      return;
+    }
+
+    const isPublicPath = publicPaths.includes(pathname);
+    let targetPath: string | null = null;
+
     if (!user) {
-      // If not logged in and not on a public path, redirect to login
-      if (!publicPaths.includes(pathname)) {
-        redirectHandledRef.current = true;
-        window.location.href = '/';
+      // If the user is not logged in and not on a public path, redirect to the login page.
+      if (!isPublicPath) {
+        targetPath = '/';
       }
     } else {
-      // If logged in, check role-based redirection
-      let determinedRedirectPath: string | null = null;
-
-      if (typeof role === 'string') {
-        // Role is a string, pass it to getRedirectPath.
-        determinedRedirectPath = getRedirectPath(role, pathname);
-      } else {
-        // Role is null (or undefined). Replicate the logic from getRedirectPath for a null role.
-        // Original getRedirectPath logic for !role:
-        // if (!role && currentPath !== '/') { return '/'; }
-        // return null;
-        if (pathname !== '/') { // currentPath is pathname
-          determinedRedirectPath = '/';
-        } else {
-          determinedRedirectPath = null;
-        }
+      // User is logged in.
+      // If they are on a public path (like the login page), redirect them to their dashboard.
+      if (isPublicPath) {
+        targetPath = '/dashboard';
       }
-
-      if (determinedRedirectPath) {
-        redirectHandledRef.current = true;
-        window.location.href = determinedRedirectPath;
+      // If the user has the 'guest' role and is trying to access a non-CRM page, redirect them to the CRM.
+      else if (role === 'guest' && pathname !== '/crm') {
+        targetPath = '/crm';
       }
     }
-    
-    // Reset the flag after a short delay to allow future redirects if needed
-    const timer = setTimeout(() => {
-      redirectHandledRef.current = false;
-    }, 1000);
-    
-    return () => clearTimeout(timer);
-  }, [user, role, isLoading, pathname]);
 
-  if (isLoading) {
+    if (targetPath) {
+      setIsRedirecting(true);
+      router.replace(targetPath);
+    }
+  }, [user, role, isUserContextLoading, pathname, router]);
+
+  // Display a loading indicator while the auth check or redirection is in progress.
+  if (isUserContextLoading || isRedirecting) {
+    return <AuthLoading />;
+  }
+
+  // If there was an error fetching user data, display an error message.
+  if (error) {
     return (
-      <>
-        <Head>
-          <title>Loading User...</title>
-        </Head>
-        <div className="flex items-center justify-center h-screen text-center">
-          <p className="text-lg">Loading application...</p>
-          <span className="loading loading-spinner loading-lg ml-2"></span>
-        </div>
-      </>
+      <div className="flex flex-col items-center justify-center h-screen text-center p-4">
+        <p className="text-lg text-error">Authentication Error</p>
+        <p className="text-sm mt-2">{error}</p>
+      </div>
     );
   }
 
-  if (userContextError) {
-    return (
-      <>
-        <Head>
-          <title>Authentication Error</title>
-        </Head>
-        <div className="flex flex-col items-center justify-center h-screen text-center p-4">
-          <p className="text-lg text-red-600">Authentication Error</p>
-          <p className="text-sm text-gray-700 mt-2">
-            There was an issue loading your user information: {userContextError}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Please try refreshing the page or contact support if the problem persists.
-          </p>
-        </div>
-      </>
-    );
+  // If the user is not logged in and is on a public path, render the children (e.g., the login page).
+  if (!user && publicPaths.includes(pathname)) {
+    return <>{children}</>;
   }
 
-  if (!user && pathname !== '/') {
-    // The useEffect hook handles redirection. This state should be brief.
-    // Display a placeholder while redirecting.
-    return (
-      <>
-        <Head>
-          <title>Redirecting...</title>
-        </Head>
-        <div className="flex items-center justify-center h-screen text-center">
-          <p className="text-lg">Redirecting to login page...</p>
-        </div>
-      </>
-    );
+  // If the user is logged in and no redirection is needed, render the protected content.
+  if (user) {
+    return <>{children}</>;
   }
 
-  // If user is authenticated, or if it's the login page itself (even if !user), render children.
-  return <>{children}</>;
+  // Fallback, should ideally not be reached. Shows loading while waiting for redirect.
+  return <AuthLoading />;
 }

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-
 import { supabase } from '@/lib/supabase/client';
-import { Campaign, CampaignJobs, JobStatus } from '@/types/campaign';
+import type { Campaign, CampaignJobs, CampaignJobStatus } from '@/types';
 
-function isJobStatus(status: string): status is JobStatus {
-  return ['pending', 'processing', 'completed', 'failed'].includes(status);
+function isJobStatus(status: string): status is CampaignJobStatus {
+    // Check against the values of the CampaignJobStatus enum
+    return Object.values(CampaignJobStatus).includes(status as CampaignJobStatus);
 }
 
 export function useCampaigns() {
@@ -35,41 +35,37 @@ export function useCampaigns() {
     }
   }, []);
 
-// In your useCampaigns.ts file, modify the fetchJobs function like this:
-
-const fetchJobs = useCallback(async (campaignId: string) => {
-  if (!campaignId) return [];
-  
-  setIsLoading(true);
-  try {
-    const { data, error } = await supabase
-      .from('campaign_jobs')
-      .select('*')
-      .eq('campaign_id', campaignId)
-      .order('next_processing_time', { ascending: true });
-
-    if (error) throw error;
+  const fetchJobs = useCallback(async (campaignId: string) => {
+    if (!campaignId) return [];
     
-    // Use the type guard to validate status
-    const typedData = (data || []).map(job => {
-      if (!isJobStatus(job.status)) {
-        console.warn(`Invalid job status: ${job.status}, defaulting to 'pending'`);
-        return { ...job, status: 'pending' as const };
-      }
-      return { ...job, status: job.status };
-    });
-    
-    setJobs(typedData);
-    return typedData;
-  } catch (err) {
-    setError('Failed to load jobs');
-    console.error('Error fetching jobs:', err);
-    return [] as CampaignJobs[];
-  } finally {
-    setIsLoading(false);
-  }
-}, []);
-  // Add other shared methods like startCampaign, stopCampaign, etc.
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('campaign_jobs')
+        .select('*')
+        .eq('campaign_id', campaignId)
+        .order('next_processing_time', { ascending: true });
+
+      if (error) throw error;
+      
+      const typedData = (data || []).map(job => {
+        if (!isJobStatus(job.status)) {
+          console.warn(`Invalid job status: ${job.status}, defaulting to 'scheduled'`);
+          return { ...job, status: CampaignJobStatus.Scheduled };
+        }
+        return { ...job, status: job.status as CampaignJobStatus };
+      });
+      
+      setJobs(typedData as CampaignJobs[]);
+      return typedData as CampaignJobs[];
+    } catch (err) {
+      setError('Failed to load jobs');
+      console.error('Error fetching jobs:', err);
+      return [] as CampaignJobs[];
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   return {
     campaigns,
@@ -78,6 +74,5 @@ const fetchJobs = useCallback(async (campaignId: string) => {
     error,
     fetchCampaigns,
     fetchJobs,
-    // Add other methods
   };
 }

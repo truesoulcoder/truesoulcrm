@@ -1,8 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-
-import { Database } from '@/db_types';
+import { Database } from '@/types';
 
 // Helper to create Supabase client with full cookie handling
 const createSupabaseServerClient = (cookieStore: ReturnType<typeof cookies>) => {

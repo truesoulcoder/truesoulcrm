@@ -1,10 +1,8 @@
 // src/app/api/campaigns/route.ts
 import { createRouteHandlerClient } from '@supabase/ssr'
-import { User } from '@supabase/supabase-js' // Added for User type
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-
-import type { Database } from '@/db_types'
+import type { Database, User } from '@/types'
 
 // Define valid campaign statuses based on the new enum
 const VALID_CAMPAIGN_STATUSES: string[] = [

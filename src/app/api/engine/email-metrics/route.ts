@@ -1,7 +1,7 @@
 // src/app/api/engine/email-metrics/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminServerClient } from '@/lib/supabase/server';
-import { Database } from '@/db_types';
+import { Database } from '@/types';
 
 type EmailStatus = 'sent' | 'delivered' | 'bounced' | 'opened' | 'clicked' | 'replied' | 'failed';
 type TimeRange = '24h' | '7d' | '30d' | 'all'; // Added 'all' for fetching all logs

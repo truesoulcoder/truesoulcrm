@@ -1,473 +1,212 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+'use client';
+
+import {
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type SortingState,
+} from '@tanstack/react-table';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { LeadFormModal } from '@/components/leads/LeadFormModal';
-import ColumnSelectorModal from './ColumnSelectorModal'; // Import ColumnSelectorModal
-import type { LeadFormData } from '@/components/leads/LeadFormModal'; // Import LeadFormData
 import { createCrmLeadAction, updateCrmLeadAction, deleteCrmLeadAction } from '@/app/crm/actions';
-import type { Database } from '@/db_types';
+import { supabase } from '@/lib/supabase/client';
+import type { Database } from '@/types';
 
-type DataRow = Record<string, unknown> & { id: string };
+// Type Aliases for the new schema
+type Lead = Database['public']['Tables']['leads']['Row'];
+type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 
-// Define a basic Lead interface (can be expanded later)
-interface Lead { // This is for selectedLead, which might come from DataRow initially
-  id: string;
-  contact_name?: string; // Changed back from first_name/last_name
-  email?: string;
-  phone?: string;
-  status?: string; // Already present
-  street_address?: string; // Kept, as it's a form field, though not directly on DB lead
-  // Add other relevant lead fields here, matching DataRow or crm_leads structure
-  property_address?: string;
-  property_city?: string;
-  property_state?: string;
-  property_postal_code?: string;
-  contact_type?: string;
-  assessed_total?: number | null;
-  property_type?: string;
-  square_footage?: number | null;
-  beds?: number | null;
-  baths?: number | null;
-  year_built?: number | null;
-  lot_size_sqft?: number | null;
-  notes?: string;
-}
+const columnHelper = createColumnHelper<Lead>();
 
-interface ColumnVisibility {
-  [key: string]: boolean;
-}
+const OmegaTable = () => {
+  // Data and State
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-interface OmegaTableProps {
-  data?: DataRow[];
-  loading?: boolean;
-  error?: string | null;
-  marketFilter?: string;
-  availableMarkets?: { name: string; associated_leads_table: string }[];
-  onMarketFilterChange?: (market: string) => void;
-}
+  // Table State
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [globalFilter, setGlobalFilter] = useState('');
 
-const OmegaTable: React.FC<OmegaTableProps> = ({ 
-  data = [], 
-  loading = false, 
-  error = null,
-  marketFilter = 'all',
-  availableMarkets = [],
-  onMarketFilterChange = () => {}
-}) => {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({});
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
-  // Modal and selection states
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [isColumnSelectorModalOpen, setIsColumnSelectorModalOpen] = useState<boolean>(false); // State for column selector modal
-  const [selectedLead, setSelectedLead] = useState<Partial<Lead> | null>(null);
-  const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const headerCheckboxRef = useRef<HTMLInputElement>(null);
-
-  // Filter and sort data
-  const filteredData = useMemo(() => {
-    if (!searchTerm) return data;
-    return data.filter(row =>
-      Object.values(row).some(value =>
-        String(value).toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
-  }, [data, searchTerm]);
-
-  const sortedData = useMemo(() => {
-    if (!sortKey) return filteredData;
-    return [...filteredData].sort((a, b) => {
-      const valA = a[sortKey] as string | number;
-      const valB = b[sortKey] as string | number;
+  // Data Fetching
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('leads')
+        .select('*')
+        .order('created_at', { ascending: false });
       
-      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [filteredData, sortKey, sortOrder]);
+      if (fetchError) throw fetchError;
+      setLeads(data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch leads.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  // Pagination
-  const currentRows = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    return sortedData.slice(start, end);
-  }, [sortedData, currentPage, rowsPerPage]);
-  
-  // Update header checkbox indeterminate state
   useEffect(() => {
-    if (headerCheckboxRef.current) {
-      const safeCurrentRows = currentRows || []; // Defensive guard
-      const numSelectedCurrentRows = safeCurrentRows.filter(row => selectedRows.includes(row.id)).length;
-      if (numSelectedCurrentRows > 0 && numSelectedCurrentRows < safeCurrentRows.length) {
-        headerCheckboxRef.current.indeterminate = true;
-      } else {
-        headerCheckboxRef.current.indeterminate = false;
-      }
-    }
-  }, [selectedRows, currentRows]);
+    fetchData();
+  }, [fetchData]);
 
-  // Initialize column visibility
-  useEffect(() => {
-    if (data.length > 0 && Object.keys(columnVisibility).length === 0) {
-      const initialVisibility: ColumnVisibility = {};
-      Object.keys(data[0]).forEach(key => {
-        if (key !== 'id') { // Keep 'id' out of selectable columns
-          initialVisibility[key] = true;
-        }
-      });
-      setColumnVisibility(initialVisibility);
-    }
-  }, [data, columnVisibility]);
-
-  const totalPages = Math.ceil(sortedData.length / rowsPerPage);
-
-  // Handlers
-  const handleSort = (key: string) => {
-    setSortOrder(sortKey === key && sortOrder === 'asc' ? 'desc' : 'asc');
-    setSortKey(key);
-    setCurrentPage(1);
+  // Modal and CRUD Handlers
+  const handleOpenModal = (lead: Lead | null = null) => {
+    setSelectedLead(lead);
+    setIsModalOpen(true);
   };
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedLead(null);
   };
 
-  const handleRowsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setRowsPerPage(Number(e.target.value));
-    setCurrentPage(1);
-  };
-
-  // Determine column headers dynamically
-  const headers = useMemo(() => {
-    if (data.length === 0) return [];
-    return Object.keys(data[0])
-      .filter(key => key !== 'id' && columnVisibility[key]) // Filter by visibility
-      .map(key => ({ key, label: key.replace(/_/g, ' ').toUpperCase(), sortable: true }));
-  }, [data, columnVisibility]); // Add columnVisibility to dependencies
-
-  // Prepare all columns for the selector modal
-  const allColumnsForSelector = useMemo(() => {
-    if (data.length === 0) return [];
-    return Object.keys(data[0])
-      .filter(key => key !== 'id')
-      .map(key => ({ key, label: key.replace(/_/g, ' ').toUpperCase() }));
-  }, [data]);
-
-  // Handler for saving column visibility from modal
-  const handleSaveColumnVisibility = (newVisibility: ColumnVisibility) => {
-    setColumnVisibility(newVisibility);
-    console.log('[OmegaTable] Updated columnVisibility:', newVisibility); // Added console log
-    setIsColumnSelectorModalOpen(false); // Close modal on save
-  };
-
-  // Effect for logging allColumnsForSelector
-  useEffect(() => {
-    if (allColumnsForSelector.length > 0) {
-      console.log('[OmegaTable] allColumnsForSelector for modal (sample):', allColumnsForSelector.slice(0, 5));
-    }
-  }, [allColumnsForSelector]);
-
-  // Modal submit handler
-  const handleModalSubmit = async (
-    submittedLeadData: LeadFormData // Use imported LeadFormData type
-  ) => {
-    const currentMarketFilter = marketFilter; 
-
-    if (!currentMarketFilter || currentMarketFilter === 'all') {
-      console.error("Cannot submit lead: Market region is not specified. Please select a specific market from the table filter.");
-      // Optionally, show a user-facing error message here
-      return;
-    }
-
-    // Construct leadDataForAction, ensuring it aligns with what server actions expect.
-    // Server actions currently expect CrmLead type which might not have all LeadFormData fields directly.
-    // For now, pass all fields from submittedLeadData; server actions will pick what they need.
-    // `contact_name` is removed from LeadFormData, so it won't be here.
-    // New fields like first_name, last_name, status, street_address are now part of submittedLeadData.
-    const leadDataForAction = { 
-      ...submittedLeadData, // Spread all fields from the form
-      market_region: currentMarketFilter,
-      // Ensure numeric fields are correctly passed as numbers if actions expect them so.
-      // LeadFormModal's onInputChange already converts these to numbers or null.
-      assessed_total: submittedLeadData.assessed_total,
-      square_footage: submittedLeadData.square_footage,
-      beds: submittedLeadData.beds,
-      baths: submittedLeadData.baths,
-      year_built: submittedLeadData.year_built,
-      lot_size_sqft: submittedLeadData.lot_size_sqft,
-    };
-    
-    // Remove street_address if it's empty and not desired on the backend explicitly
-    // For now, we pass it as is. The backend action should handle it.
-    // if (leadDataForAction.street_address === '') {
-    //   delete leadDataForAction.street_address;
-    // }
-
-
-    let response;
-    if (selectedLead && selectedLead.id) {
-      // Update existing lead
-      response = await updateCrmLeadAction(Number(selectedLead.id), leadDataForAction);
-    } else {
-      // Create new lead
-      response = await createCrmLeadAction(leadDataForAction);
-    }
-
+  const handleFormSubmit = async (leadData: LeadInsert) => {
+    const action = selectedLead ? updateCrmLeadAction(selectedLead.id, leadData) : createCrmLeadAction(leadData);
+    const response = await action;
     if (response.success) {
-      setIsModalOpen(false);
-      console.log(response.message || (selectedLead?.id ? 'Lead updated successfully.' : 'Lead created successfully.'));
-      // Data revalidation is handled by server action's revalidatePath
+      await fetchData(); // Refresh data on success
+      handleCloseModal();
     } else {
-      console.error('Failed to submit lead:', response.error);
-      // Optionally, show a user-facing error message here
-      // Modal remains open for corrections
+      alert(`Error: ${response.error}`);
     }
   };
 
-  const handleDeleteLead = async (leadId: string | number) => {
-    if (!selectedLead || !selectedLead.id) { // Safety check
-      console.error("No lead selected for deletion or lead ID is missing.");
-      return;
-    }
-
-    const currentMarketFilter = marketFilter; // Use the marketFilter state from component scope
-
-    if (!currentMarketFilter || currentMarketFilter === 'all') {
-      console.error("Cannot delete lead: Market region is not specified. Please select a specific market from the table filter.");
-      // Optionally, show a user-facing error message here.
-      // Consider if the modal should stay open or close if this error occurs.
-      // For now, we'll prevent the action and the modal will remain as is.
-      return;
-    }
-
-    const response = await deleteCrmLeadAction({ 
-      leadId: Number(leadId), 
-      marketRegion: currentMarketFilter 
-    });
-
+  const handleLeadDelete = async (leadId: string) => {
+    const response = await deleteCrmLeadAction(leadId);
     if (response.success) {
-      console.log(response.message || `Lead deleted successfully from ${currentMarketFilter}.`);
-      setIsModalOpen(false);
-      setSelectedLead(null); // Clear selected lead
-      // Data revalidation is handled by server action's revalidatePath
+      await fetchData();
+      handleCloseModal();
     } else {
-      console.error('Failed to delete lead:', response.error);
-      // Optionally, show a user-facing error message
-      // Modal could be kept open or closed based on UX decision
-      setIsModalOpen(false); // Close modal even on error for now
+      alert(`Error: ${response.error}`);
     }
   };
+
+  // TanStack Table Columns Definition
+  const columns = useMemo(() => [
+    columnHelper.accessor(row => `${row.first_name || ''} ${row.last_name || ''}`, {
+        id: 'contact_name',
+        header: 'Name',
+        cell: info => info.getValue(),
+    }),
+    columnHelper.accessor('email', {
+        header: 'Email',
+        cell: info => info.getValue(),
+    }),
+    columnHelper.accessor('phone', {
+        header: 'Phone',
+        cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor(row => `${row.property_address || ''}, ${row.property_city || ''}`, {
+        id: 'address',
+        header: 'Property Address',
+        cell: info => info.getValue(),
+    }),
+    columnHelper.accessor('market_region', {
+        header: 'Market',
+        cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor('created_at', {
+        header: 'Date Added',
+        cell: info => new Date(info.getValue()).toLocaleDateString(),
+    }),
+  ], []);
+
+  const table = useReactTable({
+    data: leads,
+    columns,
+    state: {
+      sorting,
+      globalFilter,
+    },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
 
   return (
-    <div className="p-4">
-      {/* Market Filter */}
-      {availableMarkets.length > 0 && (
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Filter by Market:</label>
-          <select
-            className="select select-bordered w-full max-w-xs"
-            value={marketFilter}
-            onChange={(e) => onMarketFilterChange(e.target.value)}
-          >
-            <option value="all">All Markets</option>
-            {availableMarkets.map(market => (
-              <option key={market.name} value={market.name}>
-                {market.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Controls */}
+    <div className="p-4 bg-base-100 rounded-lg shadow-xl">
+      {/* Header: Search and Add Button */}
       <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center space-x-2">
-          <select 
-            className="select select-bordered"
-            value={rowsPerPage}
-            onChange={handleRowsPerPageChange}
-          >
-            {[10, 25, 50, 100].map(size => (
-              <option key={size} value={size}>{size} per page</option>
+        <input
+          type="text"
+          placeholder="Search all fields..."
+          className="input input-bordered w-full max-w-xs"
+          value={globalFilter}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+        />
+        <button className="btn btn-primary" onClick={() => handleOpenModal()}>
+          Add New Lead
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="table w-full">
+          <thead>
+            {table.getHeaderGroups().map(headerGroup => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map(header => (
+                  <th key={header.id} onClick={header.column.getToggleSortingHandler()} className="cursor-pointer select-none">
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? null}
+                  </th>
+                ))}
+              </tr>
             ))}
-          </select>
-          <input 
-            type="text" 
-            placeholder="Search..." 
-            className="input input-bordered w-full max-w-xs"
-            value={searchTerm}
-            onChange={handleSearchChange}
-          />
-          <button
-            className="btn btn-outline ml-2" // Added margin for spacing
-            onClick={() => setIsColumnSelectorModalOpen(true)}
-          >
-            Select Columns
-          </button>
-        </div>
-        <div>
-          <button 
-            className="btn btn-primary"
-            onClick={() => {
-              setSelectedLead(null);
-              setIsModalOpen(true);
-            }}
-          >
-            Add New Lead
-          </button>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={columns.length} className="text-center py-10"><span className="loading loading-spinner"></span></td></tr>
+            ) : table.getRowModel().rows.length === 0 ? (
+              <tr><td colSpan={columns.length} className="text-center py-10">No leads found.</td></tr>
+            ) : (
+              table.getRowModel().rows.map(row => (
+                <tr key={row.id} className="hover" onClick={() => handleOpenModal(row.original)}>
+                  {row.getVisibleCells().map(cell => (
+                    <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex justify-between items-center mt-4">
+        <span className="text-sm">
+          Page{' '}
+          <strong>
+            {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+          </strong>
+        </span>
+        <div className="btn-group">
+          <button className="btn" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>«</button>
+          <button className="btn" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>»</button>
         </div>
       </div>
 
-      {/* Loading & Error States */}
-      {loading && (
-        <div className="text-center py-8">
-          <span className="loading loading-spinner loading-lg"></span>
-          <p className="mt-2">Loading leads...</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="alert alert-error mb-4">
-          <div className="flex-1">
-            <label>Error: {error}</label>
-          </div>
-        </div>
-      )}
-
-      {/* Table */}
-      {!loading && !error && (
-        <>
-          <div className="overflow-x-auto">
-            <table className="table table-zebra w-full">
-              <thead>
-                <tr>
-                  <th className="w-12">
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-sm checkbox-primary"
-                      ref={headerCheckboxRef}
-                      checked={currentRows.length > 0 && currentRows.every(row => selectedRows.includes(row.id))}
-                      onChange={(e) => {
-                        const currentIds = currentRows.map(r => r.id);
-                        if (e.target.checked) {
-                          setSelectedRows(prev => [...new Set([...prev, ...currentIds])]);
-                        } else {
-                          setSelectedRows(prev => prev.filter(id => !currentIds.includes(id)));
-                        }
-                      }}
-                    />
-                  </th>
-                  <th className="w-16">#</th>
-                  {headers.map(header => (
-                    <th 
-                      key={header.key} 
-                      onClick={() => handleSort(header.key)}
-                      className="cursor-pointer"
-                    >
-                      {header.label}
-                      {sortKey === header.key && (
-                        <span>{sortOrder === 'asc' ? ' ▲' : ' ▼'}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {currentRows.map((row, index) => (
-                  <tr 
-                    key={`${row.id}-${index}`} // Append index to ensure key uniqueness
-                    className="hover" // Removed cursor-pointer from entire row if modal only opens on cell click
-                  >
-                    <td onClick={(e) => e.stopPropagation()}> {/* Stop propagation to prevent row click */}
-                      <input
-                        type="checkbox"
-                        className="checkbox checkbox-sm checkbox-primary"
-                        checked={selectedRows.includes(row.id)}
-                        onChange={(e) => {
-                          // e.stopPropagation(); // Already handled by td onClick
-                          if (e.target.checked) {
-                            setSelectedRows(prev => [...prev, row.id]);
-                          } else {
-                            setSelectedRows(prev => prev.filter(id => id !== row.id));
-                          }
-                        }}
-                      />
-                    </td>
-                    <td>{(currentPage - 1) * rowsPerPage + index + 1}</td>
-                    {headers.map(header => (
-                      <td 
-                        key={`${row.id}-${header.key}`}
-                        onClick={() => { // Allow modal opening by clicking on other cells
-                           setSelectedLead(row as Partial<Lead>);
-                           setIsModalOpen(true);
-                        }}
-                        className="cursor-pointer"
-                      >
-                        {String(row[header.key] || '-')}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex justify-center mt-4">
-              <div className="btn-group">
-                <button 
-                  className="btn" 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  «
-                </button>
-                <button className="btn">Page {currentPage} of {totalPages}</button>
-                <button 
-                  className="btn" 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  »
-                </button>
-              </div>
-            </div>
-          )}
-
-          {currentRows.length === 0 && searchTerm && (
-            <div className="text-center py-4">
-              No results found for &quot;{searchTerm}&quot;
-            </div>
-          )}
-
-          {currentRows.length === 0 && !searchTerm && (
-            <div className="text-center py-4">
-              No data available
-            </div>
-          )}
-        </>
-      )}
-
+      {/* Modal */}
       <LeadFormModal
         isOpen={isModalOpen}
-        lead={selectedLead as Partial<Database['public']['Tables']['crm_leads']['Row']>}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleModalSubmit}
-        onDelete={handleDeleteLead} // Pass the delete handler
-        isEditMode={!!(selectedLead && selectedLead.id)} // Pass isEditMode
-        isLoaded={true} // Assuming Google Maps API is handled internally or not critical for initial load
-      />
-
-      <ColumnSelectorModal
-        isOpen={isColumnSelectorModalOpen}
-        onClose={() => setIsColumnSelectorModalOpen(false)}
-        allColumns={allColumnsForSelector}
-        currentVisibility={columnVisibility}
-        onSave={handleSaveColumnVisibility}
+        onClose={handleCloseModal}
+        onSubmit={handleFormSubmit}
+        onDelete={handleLeadDelete}
+        lead={selectedLead || undefined}
+        isEditMode={!!selectedLead}
       />
     </div>
   );

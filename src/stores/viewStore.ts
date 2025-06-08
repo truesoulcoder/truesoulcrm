@@ -1,7 +1,6 @@
 // src/stores/viewStore.ts
 import { create } from 'zustand';
-
-import type { CrmView } from '@/types/index';
+import type { CrmView } from '@/types';
 
 interface ViewState {
   currentView: CrmView;

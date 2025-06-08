@@ -2,7 +2,7 @@
 import { createRouteHandlerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import type { Database } from '@/db_types'
+import type { Database } from '@/types'
 
 // Define valid campaign statuses based on the new enum
 const VALID_CAMPAIGN_STATUSES: string[] = [

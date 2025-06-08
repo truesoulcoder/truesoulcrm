@@ -1,583 +1,192 @@
 "use client";
 
-import { type Database } from '@/types/supabase';
-import { createBrowserClient } from '@supabase/ssr';
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase/client';
+import type { Database } from '@/types';
 
-// DaisyUI components are available globally, no need to import
-
+// Define shorter types for convenience based on the new schema
 type Campaign = Database['public']['Tables']['campaigns']['Row'];
-type MarketRegion = { name: string }; // Changed from market_region to name
-
-// Adjusted Sender type structure based on lint feedback
-type Sender = {
-  id: string; // UUID
-  sender_email: string; // Used for identification and display
-  is_active: boolean | null; // is_active can be boolean or null
-};
+type CampaignInsert = Database['public']['Tables']['campaigns']['Insert'];
+type CampaignStatus = Database['public']['Enums']['campaign_status'];
 
 export default function CampaignsView() {
-  const supabase = createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [marketRegions, setMarketRegions] = useState<MarketRegion[]>([]);
-  const [activeSenders, setActiveSenders] = useState<Sender[]>([]);
-  const [selectedSenderIds, setSelectedSenderIds] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   const [formData, setFormData] = useState<Partial<Campaign>>({
     name: '',
-    description: '',
     status: 'draft',
-    is_active: true,
-    daily_limit: 100,
-    market_region: '',
-    sender_quota: 10,
-    min_interval_seconds: 180,
-    max_interval_seconds: 360,
-    dry_run: false,
-    time_window_hours: 8,
-    avg_emails_per_hour: 0,
   });
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const fetchActiveSenders = useCallback(async () => {
-    try {
-      // Ensure 'is_active' is the correct column name for filtering active senders
-      // Selecting sender_email for display based on lint feedback
-      const { data, error } = await supabase
-        .from('senders') // Assuming your table is named 'senders'
-        .select('id, sender_email, is_active') // Select necessary fields
-        .eq('is_active', true) // Filter for active senders (Supabase handles null correctly here)
-        .order('sender_email'); // Order by sender_email
-
-      if (error) throw error;
-      setActiveSenders(data || []);
-    } catch (error) {
-      console.error('Error fetching active senders:', error);
-      // Optionally, set an error state to display to the user
-    }
-  }, [supabase]);
-
   const fetchCampaigns = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
+      const { data, error: fetchError } = await supabase
         .from('campaigns')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (fetchError) throw fetchError;
       setCampaigns(data || []);
-    } catch (error) {
-      console.error('Error fetching campaigns:', error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch campaigns.');
+      console.error('Error fetching campaigns:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [supabase]);
-
-  const fetchMarketRegions = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('market_regions')
-        .select('name') // Select the 'name' column
-        .order('name'); // Order by 'name'
-
-      if (error) throw error;
-      // Map the data to the expected MarketRegion type
-      const regions = data.map((item: { name: string | null }) => ({
-        name: item.name || '' // Use item.name
-      })).filter(region => region.name); // Filter out any empty names
-      setMarketRegions(regions);
-    } catch (error) {
-      console.error('Error fetching market regions:', error);
-    }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        await fetchCampaigns();
-        await fetchMarketRegions();
-        await fetchActiveSenders();
-      } catch (error) {
-        console.error('Error loading data:', error);
-        // TODO: Add error handling (e.g., show error toast)
-      }
-    };
-    
-    void loadData();
-  }, [fetchCampaigns, fetchMarketRegions, fetchActiveSenders]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target as HTMLInputElement;
-    
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'number' ? parseInt(value) || 0 : value
-    }));
-  };
-
-  const handleSelectChange = (name: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: checked
-    }));
-  };
+    void fetchCampaigns();
+  }, [fetchCampaigns]);
 
   const resetForm = () => {
-    setFormData({
-      name: '',
-      description: '',
-      status: 'draft',
-      is_active: true,
-      daily_limit: 100,
-      market_region: '',
-      sender_quota: 10,
-      min_interval_seconds: 180,
-      max_interval_seconds: 360,
-      dry_run: false,
-      time_window_hours: 8,
-      avg_emails_per_hour: 0,
-      senders_used: [],
-    });
+    setFormData({ name: '', status: 'draft' });
     setEditingId(null);
-    setSelectedSenderIds([]); // Reset selected senders
   };
 
   const handleOpenModal = (campaign?: Campaign) => {
     if (campaign) {
-      setFormData({
-        ...campaign,
-        daily_limit: campaign.daily_limit || 100,
-        sender_quota: campaign.sender_quota || 10,
-        min_interval_seconds: campaign.min_interval_seconds || 180,
-        max_interval_seconds: campaign.max_interval_seconds || 360,
-      });
+      setFormData({ name: campaign.name, status: campaign.status });
       setEditingId(campaign.id);
-      setSelectedSenderIds(campaign.senders_used || []); // Load existing senders
     } else {
-      resetForm(); // This will also clear selectedSenderIds via the updated resetForm
+      resetForm();
     }
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    resetForm();
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     
-    const submitForm = async () => {
-      // Ensure all required fields are present
-      const requiredFields = ['name', 'description', 'market_region', 'daily_limit', 
-                            'sender_quota', 'min_interval_seconds', 'max_interval_seconds'] as const;
-      
-      const missingFields = requiredFields.filter(field => {
-        const value = formData[field];
-        return value === undefined || value === null || value === '';
-      });
-      
-      if (missingFields.length > 0) {
-        alert(`Please fill in all required fields: ${missingFields.join(', ')}`);
-        return;
-      }
-      
-      // Type assertion since we've checked for undefined above
-      const minInterval = formData.min_interval_seconds!;
-      const maxInterval = formData.max_interval_seconds!;
-      
-      if (minInterval >= maxInterval) {
-        alert('Minimum interval must be less than maximum interval');
-        return;
-      }
+    if (!formData.name?.trim()) {
+      setError('Campaign name is required.');
+      return;
+    }
 
-      setIsLoading(true);
+    setIsLoading(true);
 
-      try {
-        // CampaignFormData type definition removed, defining payload structure directly
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("User not authenticated.");
 
-        const campaignData = {
-          ...formData, // formData is Partial<Campaign>, so id and created_at might be present
-          name: formData.name!, // Asserting required fields
-          description: formData.description!,
-          market_region: formData.market_region!,
-          daily_limit: formData.daily_limit!,
-          sender_quota: formData.sender_quota!,
-          min_interval_seconds: formData.min_interval_seconds!,
-          max_interval_seconds: formData.max_interval_seconds!,
-          status: formData.status || 'draft',
-          is_active: formData.is_active ?? true,
-          dry_run: formData.dry_run ?? false,
-          time_window_hours: formData.time_window_hours || 8,
-          avg_emails_per_hour: formData.avg_emails_per_hour || 0,
-          updated_at: new Date().toISOString(),
-          senders_used: selectedSenderIds,
-        };
+      const campaignData: Partial<Campaign> = {
+        name: formData.name,
+        status: formData.status as CampaignStatus,
+        user_id: user.id,
+      };
 
-        if (editingId) {
-          // Update existing campaign
-          // Exclude id and created_at from the payload as they should not be updated.
-          const { id: campaignIdToExclude, created_at: createdAtToExclude, ...updateableCampaignData } = campaignData;
-          const payload: Database['public']['Tables']['campaigns']['Update'] = {
-            ...updateableCampaignData,
-            updated_at: new Date().toISOString(), // Always update the updated_at timestamp
-          };
+      const { error: upsertError } = editingId
+        ? await supabase.from('campaigns').update(campaignData).eq('id', editingId)
+        : await supabase.from('campaigns').insert(campaignData as CampaignInsert);
 
-          const { error } = await supabase
-            .from('campaigns')
-            .update(payload)
-            .eq('id', editingId);
+      if (upsertError) throw upsertError;
 
-          if (error) throw error;
-        } else {
-          // Create new campaign
-          // Exclude created_at from campaignData if it exists, as we'll set it fresh.
-          // id might be client-generated, so we keep it if present in campaignData.
-          const { created_at: createdAtFromFormData, ...otherCampaignDataProperties } = campaignData;
-          const payloadForInsert: Database['public']['Tables']['campaigns']['Insert'] = {
-            ...otherCampaignDataProperties, // Includes 'id' if it was in campaignData
-            created_at: new Date().toISOString(), // Always set created_at for new records
-            updated_at: new Date().toISOString(), // Also set updated_at for new records
-          };
-
-          const { error } = await supabase
-            .from('campaigns')
-            .insert([payloadForInsert]);
-
-          if (error) throw error;
-        }
-
-        
-
-        await fetchCampaigns();
-        setIsModalOpen(false);
-        resetForm();
-      } catch (error) {
-        console.error('Error saving campaign:', error);
-        alert('Failed to save campaign');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    // Call the async function
-    void submitForm();
+      await fetchCampaigns();
+      handleCloseModal();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save campaign.';
+      setError(message);
+      console.error('Error saving campaign:', message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="container mx-auto p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Campaigns</h1>
-        <button 
-          className="btn btn-primary" 
-          onClick={() => handleOpenModal()}
-        >
+        <button className="btn btn-primary" onClick={() => handleOpenModal()}>
           Create Campaign
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      {error && <div className="alert alert-error mb-4"><span>{error}</span></div>}
+
+      <div className="overflow-x-auto bg-base-200 rounded-box">
         <table className="table w-full">
           <thead>
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Market Region</th>
-              <th>Daily Limit</th>
               <th>Created</th>
+              <th>Last Updated</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {campaigns.map((campaign) => (
-              <tr key={campaign.id} className="hover:bg-base-200">
-                <td>{campaign.name}</td>
-                <td>
-                  <span className={`badge ${
-                    campaign.status === 'active' ? 'badge-success' : 
-                    campaign.status === 'paused' ? 'badge-warning' : 
-                    'badge-neutral'
-                  }`}>
-                    {campaign.status}
-                  </span>
-                </td>
-                <td>{campaign.market_region}</td>
-                <td>{campaign.daily_limit}</td>
-                <td>{campaign.created_at ? new Date(campaign.created_at).toLocaleDateString() : 'N/A'}</td>
-                <td>
-                  <button 
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => handleOpenModal(campaign)}
-                  >
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {campaigns.length === 0 && (
-              <tr>
-                <td colSpan={6} className="text-center py-4">
-                  No campaigns found. Create your first campaign to get started.
-                </td>
-              </tr>
+            {isLoading ? (
+              <tr><td colSpan={5} className="text-center py-10"><span className="loading loading-spinner"></span></td></tr>
+            ) : campaigns.length > 0 ? (
+              campaigns.map((campaign) => (
+                <tr key={campaign.id} className="hover">
+                  <td className="font-medium">{campaign.name}</td>
+                  <td>
+                    <span className={`badge ${
+                      {
+                        active: 'badge-success',
+                        paused: 'badge-warning',
+                        completed: 'badge-info',
+                        archived: 'badge-neutral',
+                        draft: 'badge-ghost',
+                      }[campaign.status] || 'badge-ghost'
+                    }`}>
+                      {campaign.status}
+                    </span>
+                  </td>
+                  <td>{new Date(campaign.created_at).toLocaleDateString()}</td>
+                  <td>{new Date(campaign.updated_at).toLocaleDateString()}</td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleOpenModal(campaign)}>Edit</button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr><td colSpan={5} className="text-center py-10">No campaigns found.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Modal */}
-      <div className={`modal ${isModalOpen ? 'modal-open' : ''}`}>
-        <div className="modal-box max-w-3xl">
-          <h3 className="font-bold text-lg mb-4">
-            {editingId ? 'Edit Campaign' : 'Create New Campaign'}
-          </h3>
-          <p className="text-sm text-gray-500 mb-6">
-            {editingId ? 'Update the campaign details below.' : 'Fill out the form to create a new campaign.'}
-          </p>
-          
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="form-control">
-              <label className="label" htmlFor="name">
-                <span className="label-text">Name <span className="text-error">*</span></span>
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                value={formData.name || ''}
-                onChange={handleInputChange}
-                className="input input-bordered w-full"
-                required
-              />
-            </div>
-
-            <div className="form-control">
-              <label className="label" htmlFor="description">
-                <span className="label-text">Description <span className="text-error">*</span></span>
-              </label>
-              <textarea
-                id="description"
-                name="description"
-                value={formData.description || ''}
-                onChange={handleInputChange}
-                className="textarea textarea-bordered h-24"
-                required
-              />
-            </div>
-
-            <div className="form-control">
-              <label className="label" htmlFor="market_region">
-                <span className="label-text">Market Region <span className="text-error">*</span></span>
-              </label>
-              <select
-                id="market_region"
-                name="market_region"
-                value={formData.market_region || ''}
-                onChange={(e) => handleSelectChange('market_region', e.target.value)}
-                className="select select-bordered w-full"
-                required
-              >
-                <option value="">Select a market region</option>
-                {marketRegions.map((region) => (
-                  <option key={region.name} value={region.name}>
-                    {region.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-control">
-              <label className="label" htmlFor="status">
-                <span className="label-text">Status</span>
-              </label>
-              <select
-                id="status"
-                name="status"
-                value={formData.status || 'draft'}
-                onChange={(e) => handleSelectChange('status', e.target.value)}
-                className="select select-bordered w-full"
-              >
-                <option value="draft">Draft</option>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {isModalOpen && (
+        <div className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-bold text-lg mb-4">{editingId ? 'Edit Campaign' : 'Create New Campaign'}</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="form-control">
-                <label className="label" htmlFor="daily_limit">
-                  <span className="label-text">Daily Limit <span className="text-error">*</span></span>
-                </label>
-                <input
-                  id="daily_limit"
-                  name="daily_limit"
-                  type="number"
-                  min="1"
-                  value={formData.daily_limit || ''}
-                  onChange={handleInputChange}
-                  className="input input-bordered w-full"
-                  required
-                />
+                <label className="label" htmlFor="name"><span className="label-text">Campaign Name</span></label>
+                <input id="name" name="name" type="text" value={formData.name || ''} onChange={(e) => setFormData(p => ({...p, name: e.target.value}))} className="input input-bordered w-full" required />
               </div>
-
               <div className="form-control">
-                <label className="label" htmlFor="sender_quota">
-                  <span className="label-text">Sender Quota <span className="text-error">*</span></span>
-                </label>
-                <input
-                  id="sender_quota"
-                  name="sender_quota"
-                  type="number"
-                  min="1"
-                  value={formData.sender_quota || ''}
-                  onChange={handleInputChange}
-                  className="input input-bordered w-full"
-                  required
-                />
+                <label className="label" htmlFor="status"><span className="label-text">Status</span></label>
+                <select id="status" name="status" value={formData.status || 'draft'} onChange={(e) => setFormData(p => ({...p, status: e.target.value as CampaignStatus}))} className="select select-bordered w-full">
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+                  <option value="archived">Archived</option>
+                </select>
               </div>
-
-              <div className="form-control">
-                <label className="label" htmlFor="min_interval_seconds">
-                  <span className="label-text">Min Interval (s) <span className="text-error">*</span></span>
-                </label>
-                <input
-                  id="min_interval_seconds"
-                  name="min_interval_seconds"
-                  type="number"
-                  min="1"
-                  value={formData.min_interval_seconds || ''}
-                  onChange={handleInputChange}
-                  className="input input-bordered w-full"
-                  required
-                />
+              <div className="modal-action">
+                <button type="button" className="btn btn-ghost" onClick={handleCloseModal} disabled={isLoading}>Cancel</button>
+                <button type="submit" className={`btn btn-primary ${isLoading ? 'loading' : ''}`} disabled={isLoading}>
+                  {isLoading ? 'Saving...' : 'Save Campaign'}
+                </button>
               </div>
-
-              <div className="form-control">
-                <label className="label" htmlFor="max_interval_seconds">
-                  <span className="label-text">Max Interval (s) <span className="text-error">*</span></span>
-                </label>
-                <input
-                  id="max_interval_seconds"
-                  name="max_interval_seconds"
-                  type="number"
-                  min="1"
-                  value={formData.max_interval_seconds || ''}
-                  onChange={handleInputChange}
-                  className="input input-bordered w-full"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="form-control mt-4">
-              <label className="label cursor-pointer justify-start gap-2">
-                <input
-                  id="dry_run"
-                  name="dry_run"
-                  type="checkbox"
-                  checked={formData.dry_run || false}
-                  onChange={handleCheckboxChange}
-                  className="checkbox"
-                />
-                <span className="label-text">Enable dry run mode (no emails will be sent)</span>
-              </label>
-            </div>
-
-            <div className="form-control mt-4">
-              <label className="label">
-                <span className="label-text">Time Window (Hours)</span>
-              </label>
-              <input 
-                type="number" 
-                name="time_window_hours" 
-                value={formData.time_window_hours || ''} 
-                onChange={handleInputChange} 
-                className="input input-bordered w-full" 
-                placeholder="e.g., 8 for an 8-hour window"
-              />
-            </div>
-
-            <div className="form-control mt-4">
-              <label className="label">
-                <span className="label-text">Target Avg Emails per Hour</span>
-              </label>
-              <input 
-                type="number" 
-                name="avg_emails_per_hour" 
-                value={formData.avg_emails_per_hour || ''} 
-                onChange={handleInputChange} 
-                className="input input-bordered w-full" 
-                placeholder="e.g., 50"
-              />
-            </div>
-
-            {/* Sender Selection Section */}
-            <div className="form-control mt-4">
-              <label className="label">
-                <span className="label-text">Select Senders</span>
-              </label>
-              <div className="border border-base-300 rounded-md p-4 max-h-60 overflow-y-auto">
-                {activeSenders.length === 0 && <p className="text-sm text-gray-500">No active senders found.</p>}
-                {activeSenders.map((sender) => (
-                  <div key={sender.id} className="form-control">
-                    <label className="label cursor-pointer justify-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedSenderIds.includes(sender.id)}
-                        onChange={(e) => {
-                          const senderId = sender.id;
-                          setSelectedSenderIds(prevSelectedIds =>
-                            e.target.checked
-                              ? [...prevSelectedIds, senderId]
-                              : prevSelectedIds.filter(id => id !== senderId)
-                          );
-                        }}
-                        className="checkbox checkbox-primary"
-                      />
-                      <span className="label-text">{sender.sender_email}</span>
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="modal-action">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  resetForm();
-                }}
-                disabled={isLoading}
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit" 
-                className={`btn btn-primary ${isLoading ? 'loading' : ''}`}
-                disabled={isLoading}
-              >
-                {isLoading ? 'Saving...' : 'Save Campaign'}
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
-        
-        {/* Click outside to close */}
-        <form method="dialog" className="modal-backdrop">
-          <button onClick={() => {
-            setIsModalOpen(false);
-            resetForm();
-          }}>close</button>
-        </form>
-      </div>
+      )}
     </div>
   );
 }

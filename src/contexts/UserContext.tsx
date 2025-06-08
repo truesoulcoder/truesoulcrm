@@ -1,11 +1,12 @@
 "use client";
 
 import { Session, Subscription, User } from '@supabase/supabase-js';
-import { useRouter, usePathname } from 'next/navigation';
 import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 
 import { supabase } from '@/lib/supabase/client';
+import type { Tables } from '@/types';
 
+// Define the shape of the user context
 interface UserContextType {
   user: User | null;
   session: Session | null;
@@ -14,80 +15,54 @@ interface UserContextType {
   error: string | null;
 }
 
-interface ErrorWithMessage {
-  message: string;
-}
-
+// Create the context with an undefined default value
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-const getUserRole = async (userId: string) => {
-  try {
-    // This is the corrected line. Using a relative path avoids the CORS error.
-    const response = await fetch(`/api/user/${userId}/role`);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Failed to fetch user role: ${response.status}`);
-    }
-    const { role } = await response.json();
-    return role;
-  } catch (error) {
-    console.error('[getUserRole] Unexpected error:', error);
-    // Return null to indicate the role could not be fetched.
-    return null;
-  }
-};
-
-function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof (error as ErrorWithMessage).message === 'string'
-  );
-}
-
-function getErrorMessage(error: unknown): string {
-  if (isErrorWithMessage(error)) return error.message;
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  return 'Unknown error';
-}
-
+/**
+ * Provides user and session state to its children.
+ * It handles fetching the user's session and role, and listens for auth state changes.
+ */
 export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
-  const pathname = usePathname() || '';
   const authListenerRef = useRef<Subscription | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    console.log("[UserProvider] Initializing. Current path:", pathname);
 
-    const initializeAuth = async () => {
+    const initializeSession = async () => {
       try {
-        const {
-          data: { session },
-          error: sessionError
-        } = await supabase.auth.getSession();
-
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
-        
-        if (isMounted) {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setRole(session?.user ? await getUserRole(session.user.id) : null);
-            setError(null);
-        }
 
-      } catch (err) {
-        console.error("Error initializing auth:", err);
         if (isMounted) {
-          setError(getErrorMessage(err));
+          setSession(currentSession);
+          const currentUser = currentSession?.user ?? null;
+          setUser(currentUser);
+
+          if (currentUser) {
+            // If a user exists, fetch their profile and role
+            const { data: profile, error: profileError } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', currentUser.id)
+              .single();
+
+            if (profileError) {
+              console.error("Error fetching user profile:", profileError.message);
+              setRole(null);
+            } else {
+              setRole(profile?.role || null);
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error) {
+          console.error("Initialization Error:", err.message);
+          setError(err.message);
         }
       } finally {
         if (isMounted) {
@@ -96,41 +71,56 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    void initializeAuth();
+    void initializeSession();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      if (!isMounted) return;
-      
-      console.log('[UserProvider] Auth state changed:', event);
-      
-      try {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-
-        if (newSession?.user) {
-          const userRole = await getUserRole(newSession.user.id);
-          if (isMounted) setRole(userRole);
-        } else {
-          if (isMounted) setRole(null);
-        }
-      } catch (err) {
-        console.error('Error in auth state change handler:', err);
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, newSession) => {
         if (isMounted) {
-          setError(getErrorMessage(err));
+          setSession(newSession);
+          const newUser = newSession?.user ?? null;
+          setUser(newUser);
+          
+          if (newUser) {
+            // User logged in, fetch their profile
+            const { data: profile, error: profileError } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', newUser.id)
+              .single();
+            
+            if (profileError) {
+              console.error("Error fetching profile on auth change:", profileError.message);
+              setRole(null);
+            } else {
+              setRole(profile?.role || null);
+            }
+          } else {
+            // User logged out
+            setRole(null);
+          }
+          setIsLoading(false);
         }
       }
-    });
-    
-    authListenerRef.current = authListener;
+    );
+
+    authListenerRef.current = subscription;
 
     return () => {
       isMounted = false;
-      if (authListenerRef.current) {
-        authListenerRef.current.unsubscribe();
-      }
+      authListenerRef.current?.unsubscribe();
     };
-  }, [router, pathname]); // router and pathname dependencies are for potential future use
+  }, []);
 
+  const value = {
+    session,
+    user,
+    role,
+    isLoading,
+    error,
+  };
+
+  // Render a loading state until the initial session check is complete
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-base-100">
@@ -139,15 +129,18 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       </div>
     );
   }
-
+  
   return (
-    <UserContext.Provider value={{ user, session, role, isLoading, error }}>
+    <UserContext.Provider value={value}>
       {children}
     </UserContext.Provider>
   );
 };
 
-export const useUser = () => {
+/**
+ * Custom hook to access the UserContext.
+ */
+export const useUser = (): UserContextType => {
   const context = useContext(UserContext);
   if (context === undefined) {
     throw new Error('useUser must be used within a UserProvider');

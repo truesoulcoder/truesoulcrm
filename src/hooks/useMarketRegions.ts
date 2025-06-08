@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-
-import { Database } from '@/db_types';
 import { supabase } from '@/lib/supabase/client';
+import type { Database } from '@/types';
 
 type MarketRegion = Database['public']['Tables']['market_regions']['Row'];
 

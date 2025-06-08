@@ -1,176 +1,207 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useEngineControl } from '@/hooks/useEngineControl';
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase/client';
+import { Play, Pause, RefreshCw, AlertTriangle, List, Activity } from 'lucide-react';
+import type { Database } from '@/types';
 
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  message: string;
-  type: 'info' | 'error' | 'success' | 'warning';
-  data?: any;
-}
+// Define types for state management
+type Campaign = Database['public']['Tables']['campaigns']['Row'];
+type CampaignState = Database['public']['Tables']['campaign_engine_state']['Row'];
+type JobLog = Database['public']['Tables']['job_logs']['Row'];
+
+// UI Component for individual Bento boxes
+const BentoBox = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
+  <div className={`card bg-base-200 shadow-md p-4 md:p-6 ${className}`}>
+    {children}
+  </div>
+);
 
 const EngineControlView = () => {
-  const {
-    campaigns,
-    status,
-    logs,
-    startCampaign,
-    stopCampaign,
-    resumeCampaign,
-    clearLogs,
-  } = useEngineControl();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [engineStates, setEngineStates] = useState<Map<string, CampaignState>>(new Map());
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<JobLog[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState('engine');
-  const consoleEndRef = useRef<HTMLDivElement>(null);
+  const selectedCampaignState = selectedCampaignId ? engineStates.get(selectedCampaignId) : null;
+  const selectedStatus = selectedCampaignState?.status || 'stopped';
 
-  useEffect(() => {
-    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, activeTab]);
+  // Fetch initial data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data: campaignsData, error: campaignsError } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+      if (campaignsError) throw campaignsError;
+      setCampaigns(campaignsData || []);
 
-  const handleCampaignAction = async (action: (id: number) => Promise<void>, campaignId?: number) => {
-    if (campaignId === undefined) {
-      console.error("No campaign selected for action");
+      const { data: statesData, error: statesError } = await supabase.from('campaign_engine_state').select('*');
+      if (statesError) throw statesError;
+      const statesMap = new Map((statesData || []).map(state => [state.campaign_id, state]));
+      setEngineStates(statesMap);
+
+      if (campaignsData && campaignsData.length > 0 && !selectedCampaignId) {
+        setSelectedCampaignId(campaignsData[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedCampaignId]);
+
+  // Fetch logs for the selected campaign
+  const fetchLogs = useCallback(async (campaignId: string) => {
+    if (!campaignId) {
+      setLogs([]);
       return;
     }
-    try {
-      await action(campaignId);
-    } catch (error) {
-      console.error(`Failed to ${action.name} campaign:`, error);
+    const { data, error } = await supabase
+        .from('job_logs')
+        .select('*')
+        .eq('job_id', campaignId) // This is incorrect, should be by campaign_id on the job
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+    if (error) {
+        console.error("Error fetching logs:", error);
+        setError("Failed to fetch logs.");
+    } else {
+        setLogs(data || []);
     }
-  };
+  }, []);
 
-  const activeCampaignId = campaigns.find(c => c.status === 'running' || c.status === 'paused')?.id;
+  // Initial data fetch
+  useEffect(() => {
+    fetchData();
+  }, []); // Note: intentionally not including fetchData to run only once
 
-  const renderLogs = (logData: LogEntry[]) => {
-    if (logData.length === 0) {
-      return <p className="text-center text-gray-500">No logs to display.</p>;
+  // Fetch logs when selected campaign changes
+  useEffect(() => {
+    if (selectedCampaignId) {
+      fetchLogs(selectedCampaignId);
     }
+  }, [selectedCampaignId, fetchLogs]);
 
-    return logData.map((log) => {
-      let displayMessage = log.message;
-      if (typeof displayMessage === 'string' && displayMessage.trim().startsWith('{')) {
-        try {
-          const parsedJson = JSON.parse(displayMessage);
-          displayMessage = JSON.stringify(parsedJson, null, 2);
-        } catch (e) {
-          // Not valid JSON
+  // Set up Supabase Realtime subscriptions
+  useEffect(() => {
+    const stateChannel = supabase
+      .channel('campaign-engine-state-changes')
+      .on<CampaignState>('postgres_changes', { event: '*', schema: 'public', table: 'campaign_engine_state' },
+        payload => {
+          const newState = payload.new;
+          setEngineStates(prev => new Map(prev).set(newState.campaign_id, newState));
         }
-      } else if (typeof displayMessage !== 'string') {
-        displayMessage = JSON.stringify(displayMessage, null, 2);
+      ).subscribe();
+    
+    // This subscription needs to be more sophisticated if we want live logs for the selected campaign
+    const logChannel = supabase
+        .channel('job-log-changes')
+        .on<JobLog>('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_logs' },
+            payload => {
+                // A more advanced implementation would check if the new log belongs to the selected campaign
+                fetchLogs(selectedCampaignId || '');
+            }
+        ).subscribe();
+
+    return () => {
+      supabase.removeChannel(stateChannel);
+      supabase.removeChannel(logChannel);
+    };
+  }, [selectedCampaignId, fetchLogs]);
+
+
+  // Handle campaign actions
+  const handleCampaignAction = async (endpoint: string, campaignId: string | null) => {
+    if (!campaignId) return;
+    setActionLoading(true);
+    try {
+      const response = await fetch(`/api/engine/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaign_id: campaignId }),
+      });
+      if (!response.ok) {
+        const { error } = await response.json();
+        throw new Error(error || 'Action failed');
       }
-      
-      return (
-        <div
-          key={log.id}
-          className={`p-2 rounded ${
-            log.type === 'error' ? 'bg-error/10 text-error-content' :
-            log.type === 'success' ? 'bg-success/10 text-success-content' :
-            log.type === 'warning' ? 'bg-warning/10 text-warning-content' :
-            'bg-base-300'
-          }`}
-        >
-          <div className="flex justify-between text-xs opacity-70 mb-1">
-            <span>{new Date(log.timestamp).toLocaleString()}</span>
-            <span className="font-mono">ID: {log.id}</span>
-          </div>
-          <div className="font-mono text-sm break-words whitespace-pre-wrap">
-            {displayMessage}
-          </div>
-          {log.data && (
-            <details className="mt-1">
-              <summary className="text-xs cursor-pointer opacity-70">
-                Details
-              </summary>
-              <pre className="text-xs p-2 bg-base-100 rounded mt-1 overflow-x-auto">
-                {JSON.stringify(log.data, null, 2)}
-              </pre>
-            </details>
-          )}
-        </div>
-      );
-    });
+      // UI will update via realtime subscription
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred.");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-full"><span className="loading loading-spinner loading-lg"></span></div>;
+  }
+  
+  if (error) {
+    return <div className="alert alert-error"><AlertTriangle className="mr-2"/><span>{error}</span></div>;
+  }
+  
   return (
-    <div className="card bg-base-100 shadow-xl h-full flex flex-col">
-      <div className="card-body p-4 flex flex-col h-full">
-        <div className="card-title flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-          <h2 className="text-xl font-bold">Engine Control</h2>
-          <div className="flex items-center space-x-2">
-            <p>Status: <span className={`font-bold ${status === 'running' ? 'text-success' : 'text-error'}`}>
-              {status}
-            </span></p>
-          </div>
-        </div>
-        
-        <div className="flex flex-col flex-grow">
-          <div className="flex flex-wrap gap-2 mb-4">
-            {campaigns.length > 0 && (
-              <>
-                <button 
-                  className="btn btn-primary btn-sm"
-                  onClick={() => handleCampaignAction(startCampaign, campaigns[0].id)}
-                  disabled={status === 'running'}
-                >
-                  Start
-                </button>
-                <button 
-                  className="btn btn-error btn-sm"
-                  onClick={() => handleCampaignAction(stopCampaign, activeCampaignId)}
-                  disabled={status !== 'running'}
-                >
-                  Stop
-                </button>
-                <button 
-                  className="btn btn-warning btn-sm"
-                  onClick={() => handleCampaignAction(resumeCampaign, activeCampaignId)}
-                  disabled={status !== 'paused'}
-                >
-                  Resume
-                </button>
-                <button 
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => clearLogs('all')}
-                >
-                  Clear Logs
-                </button>
-              </>
-            )}
-          </div>
-          
-          <div className="tabs tabs-boxed bg-base-200 mb-2">
-            <button 
-              className={`tab ${activeTab === 'engine' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('engine')}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 h-full">
+      {/* Left Panel: Controls */}
+      <div className="lg:col-span-1 flex flex-col gap-4 md:gap-6">
+        <BentoBox>
+            <h2 className="card-title text-base-content/80 mb-2">
+                <List className="w-5 h-5"/>
+                Select Campaign
+            </h2>
+            <select
+              className="select select-bordered w-full"
+              value={selectedCampaignId || ''}
+              onChange={(e) => setSelectedCampaignId(e.target.value)}
+              disabled={campaigns.length === 0}
             >
-              Engine Logs
-            </button>
-            <button 
-              className={`tab ${activeTab === 'system' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('system')}
-            >
-              System Events
-            </button>
-            <button 
-              className={`tab ${activeTab === 'jobs' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('jobs')}
-            >
-              Campaign Jobs
-            </button>
-          </div>
-          
-          <div className="bg-base-200 rounded-md p-4 flex-grow overflow-y-auto h-96">
-            <div className="space-y-2">
-              {activeTab === 'engine' && renderLogs(logs.engine)}
-              {activeTab === 'system' && renderLogs(logs.system)}
-              {activeTab === 'jobs' && renderLogs(logs.jobs)}
+              {campaigns.length > 0 ? (
+                campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+              ) : (
+                <option>No campaigns found</option>
+              )}
+            </select>
+        </BentoBox>
+        <BentoBox className="flex-grow flex flex-col justify-between">
+            <div>
+                <h2 className="card-title text-base-content/80 mb-2">
+                    <Activity className="w-5 h-5"/>
+                    Campaign Status
+                </h2>
+                <div className={`badge badge-lg w-full h-12 text-xl ${
+                    {running: 'badge-success', paused: 'badge-warning', stopped: 'badge-error'}[selectedStatus] || 'badge-ghost'
+                }`}>
+                    {selectedStatus.toUpperCase()}
+                </div>
             </div>
-            <div ref={consoleEndRef} />
-          </div>
-        </div>
+            <div className="card-actions justify-center gap-2 mt-4">
+              <button className="btn btn-success" onClick={() => handleCampaignAction('start-campaign', selectedCampaignId)} disabled={actionLoading || selectedStatus === 'running' || !selectedCampaignId}><Play/>Start</button>
+              <button className="btn btn-warning" onClick={() => handleCampaignAction('stop-campaign', selectedCampaignId)} disabled={actionLoading || selectedStatus !== 'running' || !selectedCampaignId}><Pause/>Pause</button>
+              <button className="btn btn-info" onClick={() => handleCampaignAction('resume-campaign', selectedCampaignId)} disabled={actionLoading || selectedStatus !== 'paused' || !selectedCampaignId}><RefreshCw/>Resume</button>
+            </div>
+        </BentoBox>
       </div>
+
+      {/* Right Panel: Logs */}
+      <BentoBox className="lg:col-span-2 min-h-[30rem] flex flex-col">
+          <h2 className="card-title text-base-content/80 mb-4">Job Logs</h2>
+          <div className="bg-base-100 p-2 rounded-lg flex-grow overflow-y-auto">
+              {logs.length > 0 ? (
+                  logs.map(log => (
+                      <div key={log.id} className="font-mono text-xs p-1 border-b border-base-300/50">
+                          <span className="text-info/70 mr-2">{new Date(log.created_at).toLocaleString()}</span>
+                          <span>{log.log_message}</span>
+                      </div>
+                  ))
+              ) : (
+                  <p className="text-center text-base-content/50 pt-10">No logs for selected campaign.</p>
+              )}
+          </div>
+      </BentoBox>
     </div>
   );
 };

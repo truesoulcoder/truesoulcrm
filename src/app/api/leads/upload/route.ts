@@ -1,84 +1,119 @@
 // src/app/api/leads/upload/route.ts
-import { promises as fs } from 'fs';
-import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
-import { SupabaseClient } from '@supabase/supabase-js';
-import { parse } from 'papaparse';
-import { Database } from '@/types/database.types';
 import { createAdminServerClient } from '@/lib/supabase/server';
+import { parse } from 'papaparse';
+import type { Database } from '@/types';
 
-export const maxDuration = 60;
+type LeadInsert = Database['public']['Tables']['leads']['Insert'];
+
+// Maps common CSV header variations to the database column names.
+// This makes the upload more robust to different CSV file formats.
+const headerMapping: { [key: string]: keyof LeadInsert } = {
+    'email': 'email',
+    'first name': 'first_name',
+    'firstname': 'first_name',
+    'last name': 'last_name',
+    'lastname': 'last_name',
+    'property address': 'property_address',
+    'address': 'property_address',
+    'property city': 'property_city',
+    'city': 'property_city',
+    'property state': 'property_state',
+    'state': 'property_state',
+    'property postal code': 'property_postal_code',
+    'property zip': 'property_postal_code',
+    'zip code': 'property_postal_code',
+    'postal code': 'property_postal_code',
+    'market region': 'market_region',
+    'market': 'market_region',
+};
 
 // Main POST handler for the API route
 export async function POST(request: NextRequest) {
-  const supabase = await createAdminServerClient();
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const supabase = await createAdminServerClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-  if (userError || !user) {
-    return NextResponse.json({ ok: false, error: 'User not authenticated.' }, { status: 401 });
-  }
+    if (userError || !user) {
+        return NextResponse.json({ ok: false, error: 'User not authenticated.' }, { status: 401 });
+    }
 
-  const formData = await request.formData();
-  const file = formData.get('file') as File | null;
+    let formData;
+    try {
+        formData = await request.formData();
+    } catch (e) {
+        return NextResponse.json({ ok: false, error: 'Invalid form data.' }, { status: 400 });
+    }
+    
+    const file = formData.get('file') as File | null;
+    const marketRegion = formData.get('market_region') as string | null;
 
-  if (!file) {
-    return NextResponse.json({ ok: false, error: 'No file provided.' }, { status: 400 });
-  }
+    if (!file) {
+        return NextResponse.json({ ok: false, error: 'No file provided.' }, { status: 400 });
+    }
+    if (!marketRegion) {
+        return NextResponse.json({ ok: false, error: 'Market region is required.' }, { status: 400 });
+    }
 
-  const tempDir = path.join('/tmp', 'crm-uploads', user.id);
-  const tempFilePath = path.join(tempDir, file.name);
-
-  try {
-    // Stream file to a temporary location on the server
-    await fs.mkdir(tempDir, { recursive: true });
-    await fs.writeFile(tempFilePath, Buffer.from(await file.arrayBuffer()));
-
-    // Process the saved file
-    const result = await processCsvFile(tempFilePath, supabase, user.id);
-
-    return NextResponse.json(result);
-  } catch (error: any) {
-    console.error('API Error in /api/leads/upload:', error);
-    return NextResponse.json({ ok: false, error: 'Failed to process file upload.', details: error.message }, { status: 500 });
-  } finally {
-    // Cleanup the temporary file
-    await fs.unlink(tempFilePath).catch(err => console.error(`Failed to cleanup temp file: ${tempFilePath}`, err));
-  }
-}
-
-// Helper to parse and process the CSV content
-async function processCsvFile(filePath: string, supabase: SupabaseClient<Database>, userId: string) {
-  const csvText = await fs.readFile(filePath, 'utf-8');
-  let totalProcessed = 0;
-  
-  return new Promise((resolve) => {
-    parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      chunkSize: 250, // Process in batches of 250
-      chunk: async (results, parser) => {
-        parser.pause();
-        const batch = results.data as Record<string, any>[];
-        if (batch.length > 0) {
-          const { error: rpcError } = await supabase.rpc('process_raw_lead_batch', {
-            raw_leads: batch,
-            p_user_id: userId,
-          });
-
-          if (rpcError) {
-            parser.abort();
-            return resolve({ ok: false, error: 'Failed to process lead batch in database.', details: rpcError.message });
-          }
-          totalProcessed += batch.length;
+    try {
+        const csvText = await file.text();
+        
+        const parseResult = await new Promise<any[]>((resolve, reject) => {
+            parse(csvText, {
+                header: true,
+                skipEmptyLines: true,
+                transformHeader: header => header.trim().toLowerCase(),
+                complete: (results) => resolve(results.data),
+                error: (error) => reject(error),
+            });
+        });
+        
+        if (!parseResult || parseResult.length === 0) {
+            return NextResponse.json({ ok: false, error: 'CSV file is empty or could not be parsed.' }, { status: 400 });
         }
-        parser.resume();
-      },
-      complete: () => {
-        resolve({ ok: true, message: `Successfully processed ${totalProcessed} properties.` });
-      },
-      error: (error) => {
-        resolve({ ok: false, error: 'Failed to parse CSV file.', details: error.message });
-      },
-    });
-  });
+
+        const leadsToInsert: LeadInsert[] = parseResult.map(row => {
+            const lead: LeadInsert = {
+                user_id: user.id,
+                email: '', // will be populated from row
+                market_region: marketRegion, // Assign market region from form
+            };
+            
+            for (const key in row) {
+                const mappedKey = headerMapping[key];
+                if (mappedKey) {
+                    // This dynamic assignment works because LeadInsert has a string index signature.
+                    (lead as any)[mappedKey] = row[key] || null;
+                }
+            }
+
+            // Ensure email is not null and is a valid-looking string
+            if (!lead.email || typeof lead.email !== 'string' || !lead.email.includes('@')) {
+                return null; // This lead will be filtered out
+            }
+            
+            return lead;
+        }).filter((lead): lead is LeadInsert => lead !== null);
+
+        if (leadsToInsert.length === 0) {
+            return NextResponse.json({ ok: false, error: 'No valid leads with emails found in the CSV file.' }, { status: 400 });
+        }
+
+        const { error: insertError } = await supabase
+            .from('leads')
+            .upsert(leadsToInsert, { onConflict: 'user_id,email' });
+
+        if (insertError) {
+            console.error('Supabase insert error:', insertError);
+            return NextResponse.json({ ok: false, error: 'Failed to save leads to the database.', details: insertError.message }, { status: 500 });
+        }
+
+        return NextResponse.json({
+            ok: true,
+            message: `Successfully processed ${leadsToInsert.length} leads for ${marketRegion}.`,
+        });
+
+    } catch (error: any) {
+        console.error('API Error in /api/leads/upload:', error);
+        return NextResponse.json({ ok: false, error: 'Failed to process file upload.', details: error.message }, { status: 500 });
+    }
 }

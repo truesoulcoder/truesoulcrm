@@ -1,30 +1,30 @@
 'use client';
 
 import { PlusCircle, Edit3, Trash2, ShieldAlert, Mail, Upload } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react'; 
-
-import type { senders } from '@/db_types';
+import { useState, useEffect, useCallback } from 'react';
+import type { Database, Sender } from '@/types';
 
 const SendersView: React.FC = () => {
   // State for the senders list and loading
-  const [senders, setSenders] = useState<senders[]>([]);
+  const [senders, setSenders] = useState<Sender[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   // State for the add/edit modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSender, setEditingSender] = useState<senders | null>(null);
-  const [senderFormData, setSenderFormData] = useState({ 
-    sender_name: '', 
-    sender_email: '' 
+  const [editingSender, setEditingSender] = useState<Sender | null>(null);
+  const [senderFormData, setSenderFormData] = useState<Partial<Sender>>({
+    sender_name: '',
+    sender_email: '',
+    is_active: false,
   });
   const [modalError, setModalError] = useState<string | null>(null);
   
   // State for CSV upload
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [csvPreview, setCsvPreview] = useState<Array<{name: string, email: string, status: string}>>([]);
+  const [csvPreview, setCsvPreview] = useState<Partial<Sender>[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -39,42 +39,19 @@ const SendersView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      console.log('Fetching senders from /api/senders...');
       const response = await fetch('/api/senders');
-      console.log('Response status:', response.status);
-      
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Error response:', errorData);
         throw new Error(errorData.error || 'Failed to fetch senders');
       }
       
-      const data = await response.json();
-      console.log('Fetched senders:', data);
-      
+      const data: Sender[] = await response.json();
       if (!Array.isArray(data)) {
-        console.error('Expected an array of senders but got:', data);
         throw new Error('Invalid response format: expected an array of senders');
       }
-      
-      // Ensure required fields exist
-      const validatedSenders = data.map(sender => ({
-        id: sender.id || '',
-        user_id: sender.user_id || '',
-        sender_name: sender.sender_name || '',
-        sender_email: sender.sender_email || '',
-        is_active: sender.is_active ?? true,
-        is_default: sender.is_default ?? false,
-        created_at: sender.created_at || new Date().toISOString(),
-        updated_at: sender.updated_at || new Date().toISOString(),
-        status_message: sender.status_message
-      }));
-      
-      console.log('Validated senders:', validatedSenders);
-      setSenders(validatedSenders);
+      setSenders(data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      console.error('Error in fetchSenders:', err);
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -83,30 +60,20 @@ const SendersView: React.FC = () => {
 
   // Load senders on component mount
   useEffect(() => {
-    const loadSenders = async () => {
-      try {
-        await fetchSenders();
-      } catch (error) {
-        console.error('Failed to fetch senders:', error);
-      }
-    };
-    void loadSenders();
+    void fetchSenders();
   }, [fetchSenders]);
 
   // Modal handlers
   const openModalToAdd = () => {
     setEditingSender(null);
-    setSenderFormData({ sender_name: '', sender_email: '' });
+    setSenderFormData({ sender_name: '', sender_email: '', is_active: false });
     setModalError(null);
     setIsModalOpen(true);
   };
 
-  const openModalToEdit = (sender: senders) => {
+  const openModalToEdit = (sender: Sender) => {
     setEditingSender(sender);
-    setSenderFormData({ 
-      sender_name: sender.sender_name || '', 
-      sender_email: sender.sender_email || '' 
-    });
+    setSenderFormData(sender);
     setModalError(null);
     setIsModalOpen(true);
   };
@@ -114,7 +81,7 @@ const SendersView: React.FC = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingSender(null);
-    setSenderFormData({ sender_name: '', sender_email: '' });
+    setSenderFormData({ sender_name: '', sender_email: '', is_active: false });
     setModalError(null);
   };
 
@@ -128,7 +95,7 @@ const SendersView: React.FC = () => {
     e.preventDefault();
     setModalError(null);
 
-    if (!senderFormData.sender_name.trim() || !senderFormData.sender_email.trim()) {
+    if (!senderFormData.sender_name?.trim() || !senderFormData.sender_email?.trim()) {
       setModalError('Both name and email are required.');
       return;
     }
@@ -155,31 +122,29 @@ const SendersView: React.FC = () => {
 
       await fetchSenders();
       closeModal();
-    } catch (err: any) {
-      setModalError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setModalError(errorMessage);
     }
   };
 
-  // Sender action handlers
   const handleDeleteSender = async (senderId: string) => {
-    if (!window.confirm('Are you sure you want to delete this email sender?')) {
-      return;
-    }
+    if (!window.confirm('Are you sure you want to delete this email sender?')) return;
     
     setError(null);
     try {
-      const response = await fetch(`/api/senders/${senderId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/senders?id=${senderId}`, { method: 'DELETE' });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to delete sender');
       }
       await fetchSenders();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete sender');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete sender');
     }
   };
 
-  const handleToggleSenderActiveStatus = async (sender: senders) => {
+  const handleToggleSenderActiveStatus = async (sender: Sender) => {
     const newStatus = !sender.is_active;
     setError(null);
     
@@ -194,10 +159,9 @@ const SendersView: React.FC = () => {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to update status');
       }
-
       await fetchSenders();
-    } catch (err: any) {
-      setError(err.message || 'Failed to update status');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update sender status');
     }
   };
 
@@ -210,51 +174,30 @@ const SendersView: React.FC = () => {
     setUploadError(null);
     
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = (ev) => {
       try {
-        const text = e.target?.result as string;
+        const text = ev.target?.result as string;
         const lines = text.split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) throw new Error('CSV file is empty or has invalid format');
         
-        if (lines.length < 2) {
-          throw new Error('CSV file is empty or has invalid format');
-        }
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const nameIndex = headers.findIndex(h => h.includes('name'));
+        const emailIndex = headers.findIndex(h => h.includes('email'));
+        if (nameIndex === -1 || emailIndex === -1) throw new Error('CSV must contain "Name" and "Email" columns');
         
-        // Parse CSV (assuming first row is header)
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace('[required]', '').replace('[read only]', '').trim());
-        
-        const firstNameIndex = headers.findIndex(h => h.includes('first name'));
-        const lastNameIndex = headers.findIndex(h => h.includes('last name'));
-        const emailAddressIndex = headers.findIndex(h => h.includes('email address'));
-        
-        if (firstNameIndex === -1 || lastNameIndex === -1 || emailAddressIndex === -1) {
-          throw new Error('CSV must contain "First Name", "Last Name", and "Email Address" columns. Please check your CSV headers.');
-        }
-        
-        const preview = lines.slice(1).map(line => {
+        const previewData: Partial<Sender>[] = lines.slice(1).map(line => {
           const values = line.split(',');
-          const firstName = values[firstNameIndex]?.trim() || '';
-          const lastName = values[lastNameIndex]?.trim() || '';
-          const email = values[emailAddressIndex]?.trim() || '';
-          
           return {
-            name: `${firstName} ${lastName}`.trim(),
-            email, // Use property shorthand
-            status: 'Pending' // Assuming status is 'Pending' for new uploads
+            sender_name: values[nameIndex]?.trim() || '',
+            sender_email: values[emailIndex]?.trim() || '',
           };
         });
-        
-        setCsvPreview(preview);
-      } catch (err: any) {
-        setUploadError(err.message || 'Error parsing CSV file');
+        setCsvPreview(previewData);
+      } catch (err: unknown) {
+        setUploadError(err instanceof Error ? err.message : 'Failed to parse CSV file');
         setCsvPreview([]);
       }
     };
-    
-    reader.onerror = () => {
-      setUploadError('Error reading file');
-      setCsvPreview([]);
-    };
-    
     reader.readAsText(file);
   };
 
@@ -265,59 +208,22 @@ const SendersView: React.FC = () => {
     setUploadError(null);
     
     try {
-      const results = [];
-      
       for (const row of csvPreview) {
-        if (!row.email) continue; // Skip rows without email
-        
-        try {
-          const response = await fetch('/api/senders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sender_name: row.name, // Use row.name from csvPreview
-              sender_email: row.email, // Use row.email from csvPreview
-              is_active: true
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to add sender');
-          }
-          
-          results.push({ email: row.email, success: true });
-        } catch (err: any) {
-          results.push({ 
-            email: row.email, 
-            success: false, 
-            error: err.message || 'Failed to add sender' 
-          });
-        }
+        if (!row.sender_email) continue;
+        await fetch('/api/senders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender_name: row.sender_name,
+            sender_email: row.sender_email,
+            is_active: true
+          }),
+        });
       }
-      
-      // Show results
-      const successCount = results.filter(r => r.success).length;
-      const errorCount = results.length - successCount;
-      
-      if (errorCount > 0) {
-        const errorMessages = results
-          .filter(r => !r.success)
-          .map(r => `- ${r.email}: ${r.error}`)
-          .join('\n');
-        
-        setUploadError(`Failed to import ${errorCount} sender(s).\n${errorMessages}`);
-      } else {
-        setIsUploadModalOpen(false);
-      }
-      
-      if (successCount > 0) {
-        await fetchSenders();
-      }
-      
+      setIsUploadModalOpen(false);
+      await fetchSenders();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred during import';
-      setUploadError(errorMessage);
+      setUploadError(err instanceof Error ? err.message : 'An error occurred during import');
     } finally {
       setIsUploading(false);
     }
@@ -328,120 +234,42 @@ const SendersView: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-base-content">Email Senders</h1>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button 
-            className="btn btn-outline btn-primary flex-1 sm:flex-none"
-            onClick={() => {
-              setUploadError(null);
-              setCsvFile(null);
-              setCsvPreview([]);
-              setIsUploadModalOpen(true);
-            }}
-            disabled={isLoading}
-          >
+          <button className="btn btn-outline btn-primary flex-1 sm:flex-none" onClick={() => setIsUploadModalOpen(true)} disabled={isLoading}>
             <Upload size={18} className="mr-2" /> Bulk Import
           </button>
-          <button 
-            className="btn btn-primary flex-1 sm:flex-none" 
-            onClick={openModalToAdd}
-            disabled={isLoading}
-          >
+          <button className="btn btn-primary flex-1 sm:flex-none" onClick={openModalToAdd} disabled={isLoading}>
             <PlusCircle size={18} className="mr-2" /> Add Sender
           </button>
         </div>
       </div>
 
-      {/* Search */}
       <div className="mb-6">
-        <div className="form-control w-full max-w-md">
-          <input
-            type="text"
-            placeholder="Search senders..."
-            className="input input-bordered w-full"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+        <input type="text" placeholder="Search senders..." className="input input-bordered w-full max-w-md" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-error shadow-lg mb-6">
-          <ShieldAlert size={24} />
-          <div>
-            <h3 className="font-bold">Error</h3>
-            <div className="text-xs">{error}</div>
-          </div>
-        </div>
-      )}
+      {error && <div className="alert alert-error shadow-lg mb-6"><ShieldAlert size={24} /><div><h3 className="font-bold">Error</h3><div className="text-xs">{error}</div></div></div>}
 
-      {/* Loading State */}
       {isLoading ? (
-        <div className="text-center py-10">
-          <span className="loading loading-spinner loading-lg text-primary"></span>
-          <p className="mt-4">Loading senders...</p>
-        </div>
+        <div className="text-center py-10"><span className="loading loading-spinner loading-lg text-primary"></span><p className="mt-4">Loading senders...</p></div>
       ) : (
-        /* Senders Table */
         <div className="overflow-x-auto bg-base-100 rounded-lg shadow">
           {filteredSenders.length === 0 ? (
             <div className="text-center p-8">
               <Mail size={48} className="mx-auto text-base-content/30 mb-4" />
               <h3 className="text-lg font-medium mb-2">No senders found</h3>
-              <p className="text-base-content/70 mb-4">
-                {searchTerm ? 'Try a different search term' : 'Get started by adding a new sender'}
-              </p>
-              <button 
-                className="btn btn-primary"
-                onClick={openModalToAdd}
-              >
-                <PlusCircle size={18} className="mr-2" /> Add Sender
-              </button>
+              <p className="text-base-content/70 mb-4">{searchTerm ? 'Try a different search term' : 'Get started by adding a new sender'}</p>
+              <button className="btn btn-primary" onClick={openModalToAdd}><PlusCircle size={18} className="mr-2" /> Add Sender</button>
             </div>
           ) : (
             <table className="table w-full">
-              <thead>
-                <tr>
-                  <th>Sender Name</th>
-                  <th>Sender Email</th>
-                  <th className="text-center">Status</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Name</th><th>Email</th><th className="text-center">Status</th><th className="text-right">Actions</th></tr></thead>
               <tbody>
                 {filteredSenders.map((sender) => (
                   <tr key={sender.id} className="hover">
                     <td className="font-medium">{sender.sender_name}</td>
                     <td>{sender.sender_email}</td>
-                    <td className="text-center">
-                      <button
-                        className={`btn btn-xs ${sender.is_active ? 'btn-success' : 'btn-error'}`}
-                        onClick={() => {
-                          void handleToggleSenderActiveStatus(sender);
-                        }}
-                      >
-                        {sender.is_active ? 'Active' : 'Inactive'}
-                      </button>
-                    </td>
-                    <td className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => {
-                            openModalToEdit(sender);
-                          }}
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-xs text-error"
-                          onClick={() => {
-                            void handleDeleteSender(sender.id);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
+                    <td className="text-center"><button className={`btn btn-xs ${sender.is_active ? 'btn-success' : 'btn-error'}`} onClick={() => handleToggleSenderActiveStatus(sender)}>{sender.is_active ? 'Active' : 'Inactive'}</button></td>
+                    <td className="text-right"><div className="flex justify-end gap-2"><button className="btn btn-ghost btn-xs" onClick={() => openModalToEdit(sender)}><Edit3 size={16} /></button><button className="btn btn-ghost btn-xs text-error" onClick={() => handleDeleteSender(sender.id)}><Trash2 size={16} /></button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -450,172 +278,35 @@ const SendersView: React.FC = () => {
         </div>
       )}
 
-      {/* Add/Edit Sender Modal */}
       {isModalOpen && (
         <div className="modal modal-open">
-          <div className="modal-box">
-            <h3 className="font-bold text-lg mb-4">
-              {editingSender ? 'Edit Sender' : 'Add New Sender'}
-            </h3>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              void handleSenderFormSubmit(e);
-            }}>
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text">Name</span>
-                </label>
-                <input
-                  type="text"
-                  name="sender_name"
-                  className="input input-bordered w-full"
-                  value={senderFormData.sender_name}
-                  onChange={handleSenderFormChange}
-                  required
-                />
-              </div>
-              <div className="form-control mb-6">
-                <label className="label">
-                  <span className="label-text">Email</span>
-                </label>
-                <input
-                  type="email"
-                  name="sender_email"
-                  className="input input-bordered w-full"
-                  value={senderFormData.sender_email}
-                  onChange={handleSenderFormChange}
-                  required
-                />
-              </div>
-              
-              {modalError && (
-                <div className="alert alert-error mb-4">
-                  <ShieldAlert size={20} />
-                  <span>{modalError}</span>
-                </div>
-              )}
-              
-              <div className="modal-action">
-                <button 
-                  type="button" 
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    closeModal();
-                  }}
-                  disabled={isUploading}
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
-                  disabled={isUploading}
-                >
-                  {editingSender ? 'Save Changes' : 'Add Sender'}
-                </button>
-              </div>
+          <div className="modal-box"><h3 className="font-bold text-lg mb-4">{editingSender ? 'Edit Sender' : 'Add New Sender'}</h3>
+            <form onSubmit={handleSenderFormSubmit}>
+              <div className="form-control mb-4"><label className="label"><span className="label-text">Name</span></label><input type="text" name="sender_name" className="input input-bordered w-full" value={senderFormData.sender_name ?? ''} onChange={handleSenderFormChange} required /></div>
+              <div className="form-control mb-6"><label className="label"><span className="label-text">Email</span></label><input type="email" name="sender_email" className="input input-bordered w-full" value={senderFormData.sender_email ?? ''} onChange={handleSenderFormChange} required /></div>
+              {modalError && <div className="alert alert-error mb-4"><ShieldAlert size={20} /><span>{modalError}</span></div>}
+              <div className="modal-action"><button type="button" className="btn btn-ghost" onClick={closeModal} disabled={isUploading}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isUploading}>{editingSender ? 'Save Changes' : 'Add Sender'}</button></div>
             </form>
           </div>
           <div className="modal-backdrop" onClick={closeModal}></div>
         </div>
       )}
 
-      {/* CSV Upload Modal */}
       {isUploadModalOpen && (
         <div className="modal modal-open">
           <div className="modal-box max-w-2xl">
             <h3 className="font-bold text-lg mb-4">Bulk Import Senders</h3>
-            
             <div className="mb-6">
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">CSV File</span>
-                  <span className="label-text-alt">Format: Sender Name,Sender Email</span>
-                </label>
-                <input
-                  type="file"
-                  accept=".csv"
-                  className="file-input file-input-bordered w-full"
-                  onChange={handleFileChange}
-                  disabled={isUploading}
-                />
-              </div>
-              
-              {uploadError && (
-                <div className="alert alert-error mt-4">
-                  <ShieldAlert size={20} />
-                  <div className="whitespace-pre-wrap">{uploadError}</div>
-                </div>
-              )}
-              
-              {csvPreview.length > 0 && (
-                <div className="mt-6">
-                  <h4 className="font-medium mb-2">Preview ({csvPreview.length} senders)</h4>
-                  <div className="overflow-x-auto max-h-64 border rounded-lg">
-                    <table className="table table-zebra table-pin-rows">
-                      <thead>
-                        <tr>
-                          <th>Sender Name</th>
-                          <th>Sender Email</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {csvPreview.map((row, index) => (
-                          <tr key={index}>
-                            <td>{row.name || <span className="text-error">Required</span>}</td>
-                            <td>{row.email || <span className="text-error">Required</span>}</td>
-                            <td>{row.status}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              <div className="form-control"><label className="label"><span className="label-text">CSV File</span><span className="label-text-alt">Format: Name,Email</span></label><input type="file" accept=".csv" className="file-input file-input-bordered w-full" onChange={handleFileChange} disabled={isUploading}/></div>
+              {uploadError && <div className="alert alert-error mt-4"><ShieldAlert size={20} /><div className="whitespace-pre-wrap">{uploadError}</div></div>}
+              {csvPreview.length > 0 && <div className="mt-6"><h4 className="font-medium mb-2">Preview ({csvPreview.length} senders)</h4><div className="overflow-x-auto max-h-64 border rounded-lg"><table className="table table-zebra table-pin-rows"><thead><tr><th>Name</th><th>Email</th></tr></thead><tbody>{csvPreview.map((row, index) => (<tr key={index}><td>{row.sender_name || <span className="text-error">Required</span>}</td><td>{row.sender_email || <span className="text-error">Required</span>}</td></tr>))}</tbody></table></div></div>}
             </div>
-            
             <div className="modal-action">
-              <button 
-                type="button" 
-                className="btn btn-ghost"
-                onClick={() => {
-                  setIsUploadModalOpen(false);
-                  setCsvFile(null);
-                  setCsvPreview([]);
-                  setUploadError(null);
-                }}
-                disabled={isUploading}
-              >
-                Cancel
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-primary"
-                onClick={() => {
-                  void handleUpload();
-                }}
-                disabled={isUploading || csvPreview.length === 0}
-              >
-                {isUploading ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs"></span>
-                    Uploading...
-                  </>
-                ) : (
-                  'Upload Senders'
-                )}
-              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setIsUploadModalOpen(false)} disabled={isUploading}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={handleUpload} disabled={isUploading || csvPreview.length === 0}>{isUploading ? <><span className="loading loading-spinner loading-xs"></span>Uploading...</> : 'Upload Senders'}</button>
             </div>
           </div>
-          <div 
-            className="modal-backdrop" 
-            onClick={() => {
-              if (!isUploading) {
-                setIsUploadModalOpen(false);
-              }
-            }}
-          ></div>
+          <div className="modal-backdrop" onClick={() => !isUploading && setIsUploadModalOpen(false)}></div>
         </div>
       )}
     </div>
