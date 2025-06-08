@@ -43,6 +43,8 @@ const Sidebar: React.FC = () => {
   const [companyLogoUrl] = useState<string | null>(null);
   // TODO: Replace this with actual logic to fetch/get companyName from settings
   const [companyName] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState(false);
+  const handleLogoError = () => setLogoError(true);
 
   // Example: Fetch settings on component mount (you'll need to adapt this)
   // useEffect(() => {
@@ -115,13 +117,20 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col">
       <div className="flex items-center justify-center mb-8">
-        <Image 
-          src={companyLogoUrl || 'https://lefvtgqockzqkasylzwb.supabase.co/storage/v1/object/public/media//logo.png'}
-          alt="Company Logo"
-          width={210}
-          height={197}
-          priority
-        />
+        {logoError ? (
+          <div className="text-2xl font-bold text-primary">
+            {companyName || 'True Soul'}
+          </div>
+        ) : (
+          <Image 
+            src={process.env.NEXT_PUBLIC_APP_LOGO?.replace('//media//', '/media/') || '/logo.png'}
+            alt="Company Logo"
+            width={210}
+            height={197}
+            priority
+            onError={handleLogoError}
+          />
+        )}
       </div>
       <ul className="menu space-y-2 flex-1">
         {visibleMenuItems.map((item) => (
