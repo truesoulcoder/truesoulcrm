@@ -1,10 +1,10 @@
 'use client';
-// External dependencies
+
 import { AlertTriangle, CheckCircle, Info, XCircle } from 'lucide-react';
 import { useState, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid'; 
+import { v4 as uuidv4 } from 'uuid';
 
-// Corrected import path
+// Corrected import path after renaming
 import { LeadUploader } from '@/components/leads/LeadUploader';
 
 interface AppMessage {
@@ -36,8 +36,10 @@ const LeadsView: React.FC = () => {
   }, []);
 
   const handleUploadSuccess = (filename: string, count?: number) => {
-    const successMessage = `Successfully uploaded <span class="math-inline">\{filename\}\.</span>{count ? ` ${count} leads processed.` : ''}`;
+    const successMessage = `Successfully uploaded ${filename}.${count ? ` ${count} leads processed.` : ''}`;
     handleAddMessage('success', successMessage);
+    // You could trigger a global processing state here if needed
+    // setIsProcessingLeads(true); 
   };
 
   const getAlertClass = (type: AppMessage['type']) => {
@@ -64,8 +66,13 @@ const LeadsView: React.FC = () => {
     <div className="container mx-auto px-0 max-w-full">
       <div className="px-4">
         <div className="mb-8 max-w-full overflow-x-hidden">
-          {/* The `LeadUploader` component is now self-contained */}
-          <LeadUploader />
+          {/* The LeadUploader component is now self-contained. 
+              We pass callbacks to receive status updates. */}
+          <LeadUploader
+            onUploadSuccess={handleUploadSuccess}
+            addMessage={handleAddMessage}
+            isProcessing={isProcessingLeads}
+          />
         </div>
 
         {/* This message display area can show feedback from various child components or actions */}
@@ -73,4 +80,21 @@ const LeadsView: React.FC = () => {
           <div className="space-y-4 mt-6 max-w-full overflow-x-hidden">
             {messages.map((msg) => (
               <div key={msg.id} role="alert" className={`alert ${getAlertClass(msg.type)} shadow-lg max-w-full`}>
-                {getAlertIcon(
+                {getAlertIcon(msg.type)}
+                <span className="max-w-full overflow-x-auto">{msg.text}</span>
+                <button
+                  onClick={() => setMessages(prev => prev.filter(m => m.id !== msg.id))}
+                  className="btn btn-sm btn-ghost absolute right-2 top-1/2 -translate-y-1/2"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default LeadsView;

@@ -1,7 +1,6 @@
-// src/components/leads/LeadFormModal.tsx
 'use client';
 
-import { useState, useEffect, useCallback, useRef, ChangeEvent } from 'react';
+import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { X, MapPin } from 'lucide-react';
 import StreetViewMap from '@/components/maps/StreetViewMap';
 import { useGoogleMapsApi } from '@/components/maps/GoogleMapsLoader';
@@ -58,8 +57,8 @@ const LeadFormModal = ({
         property_state: lead.property_state ?? '',
         property_postal_code: lead.property_postal_code ?? '',
         market_region: lead.market_region ?? '',
-        phone: (lead as any).phone ?? '', // Assuming phone exists on the lead object
-        user_id: lead.user_id, // Keep user_id if present
+        phone: (lead as any).phone ?? '', // Safely access phone
+        user_id: lead.user_id, // Keep user_id if present for updates
       };
       setFormData(currentLeadData);
       setMapAddress(currentLeadData.property_address || '');
@@ -86,7 +85,6 @@ const LeadFormModal = ({
     }
   };
   
-  // Debounced address update for map
   useEffect(() => {
     const handler = setTimeout(() => {
       setMapAddress(formData.property_address || '');
@@ -162,3 +160,26 @@ const LeadFormModal = ({
               <input type="email" name="email" placeholder="Email" className="input input-bordered w-full" value={formData.email || ''} onChange={handleInputChange} required />
             </div>
             <div className="form-control">
+                <label className="label"><span className="label-text">Phone</span></label>
+                <input type="tel" name="phone" placeholder="Phone Number" className="input input-bordered w-full" value={formData.phone || ''} onChange={handleInputChange} />
+            </div>
+          </div>
+
+          <div className="modal-action mt-6 flex justify-between items-center w-full">
+            <div>
+              {isEditMode && onDelete && (
+                <button type="button" className="btn btn-error" onClick={handleDelete}>Delete Lead</button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{isEditMode ? 'Update Lead' : 'Create Lead'}</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default LeadFormModal;
