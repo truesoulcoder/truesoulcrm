@@ -116,7 +116,7 @@ const Sidebar: React.FC = () => {
     <aside className="bg-base-200 text-base-content w-64 min-h-screen p-4 flex flex-col">
       <div className="flex items-center justify-center mb-8">
         <Image 
-          src={companyLogoUrl || 'https://lefvtgqockzqkasylzwb.supabase.co/storage/v1/object/public/media/logo.png'}
+          src={companyLogoUrl || 'https://lefvtgqockzqkasylzwb.supabase.co/storage/v1/object/public/media//logo.png'}
           alt="Company Logo"
           width={210}
           height={197}
