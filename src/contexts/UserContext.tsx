@@ -22,14 +22,18 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 const getUserRole = async (userId: string) => {
   try {
+    // This is the corrected line. Using a relative path avoids the CORS error.
     const response = await fetch(`/api/user/${userId}/role`);
+
     if (!response.ok) {
-      throw new Error(`Failed to fetch user role: ${response.status}`);
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch user role: ${response.status}`);
     }
     const { role } = await response.json();
     return role;
   } catch (error) {
     console.error('[getUserRole] Unexpected error:', error);
+    // Return null to indicate the role could not be fetched.
     return null;
   }
 };
@@ -58,61 +62,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname() || '';
-  const authListenerRef = useRef<Subscription>(null);
+  const authListenerRef = useRef<Subscription | null>(null);
 
   useEffect(() => {
-    const isMounted = true;
+    let isMounted = true;
     console.log("[UserProvider] Initializing. Current path:", pathname);
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      if (!isMounted) return;
-      
-      console.log('[UserProvider] Auth state changed:', event);
-      
-      try {
-        switch (event) {
-          case 'SIGNED_IN':
-            if (newSession?.user) {
-              const userRole = await getUserRole(newSession.user.id);
-              setSession(newSession);
-              setUser(newSession.user);
-              setRole(userRole);
-              setIsLoading(false);
-              setError(null);
-            }
-            break;
-            
-          case 'SIGNED_OUT':
-            setSession(null);
-            setUser(null);
-            setRole('guest');
-            setIsLoading(false);
-            setError(null);
-            
-            // Only redirect if not already on auth pages
-            if (pathname !== '/' && pathname !== '/login') {
-              router.replace('/');
-            }
-            break;
-            
-          case 'USER_UPDATED':
-            if (newSession?.user) {
-              const userRole = await getUserRole(newSession.user.id);
-              setUser(newSession.user);
-              setRole(userRole);
-            }
-            break;
-        }
-      } catch (err) {
-        console.error('Error in auth state change handler:', err);
-        if (isMounted) {
-          setError(getErrorMessage(err));
-        }
-      }
-    });
-
-    // Store listener for cleanup
-    authListenerRef.current = authListener;
 
     const initializeAuth = async () => {
       try {
@@ -122,11 +76,14 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         } = await supabase.auth.getSession();
 
         if (sessionError) throw sessionError;
+        
+        if (isMounted) {
+            setSession(session);
+            setUser(session?.user ?? null);
+            setRole(session?.user ? await getUserRole(session.user.id) : null);
+            setError(null);
+        }
 
-        setSession(session);
-        setUser(session?.user ?? null);
-        setRole(session?.user ? await getUserRole(session.user.id) : null);
-        setError(null);
       } catch (err) {
         console.error("Error initializing auth:", err);
         if (isMounted) {
@@ -141,19 +98,44 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
     void initializeAuth();
 
-    // Cleanup function
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
+      
+      console.log('[UserProvider] Auth state changed:', event);
+      
+      try {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          const userRole = await getUserRole(newSession.user.id);
+          if (isMounted) setRole(userRole);
+        } else {
+          if (isMounted) setRole(null);
+        }
+      } catch (err) {
+        console.error('Error in auth state change handler:', err);
+        if (isMounted) {
+          setError(getErrorMessage(err));
+        }
+      }
+    });
+    
+    authListenerRef.current = authListener;
+
     return () => {
+      isMounted = false;
       if (authListenerRef.current) {
         authListenerRef.current.unsubscribe();
       }
     };
-  }, [router, pathname]);
+  }, [router, pathname]); // router and pathname dependencies are for potential future use
 
-  if (isLoading && !session) {
+  if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-base-100">
         <span className="loading loading-spinner loading-lg text-primary"></span>
-        <p className="mt-4 text-lg">Loading...</p>
+        <p className="mt-4 text-lg">Loading Application...</p>
       </div>
     );
   }
