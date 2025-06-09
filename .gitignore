@@ -9,5 +9,5 @@ dealpig-sender-13e3b5ed13ab.json
 .vercel
 .vscode
 memory.json
-supabase
-src/supabase
+src/supabase\migrations\20250607094005_remote_schema.sql
+supabase\migrations\20250607094005_remote_schema.sql
