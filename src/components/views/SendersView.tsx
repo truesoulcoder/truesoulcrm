@@ -3,6 +3,7 @@
 import { PlusCircle, Edit3, Trash2, ShieldAlert, Mail, Upload } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import type { Database, Sender } from '@/types';
+import { supabase } from '@/lib/supabase/client';
 
 const SendersView: React.FC = () => {
   // State for the senders list and loading
@@ -39,7 +40,17 @@ const SendersView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/senders');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error('Failed to get session. Please log in.');
+      }
+      const accessToken = sessionData.session.access_token;
+
+      const response = await fetch('/api/senders', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to fetch senders');
@@ -109,9 +120,19 @@ const SendersView: React.FC = () => {
     const url = editingSender ? `/api/senders/${editingSender.id}` : '/api/senders';
 
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        setModalError('Failed to get session. Please log in.');
+        return;
+      }
+      const accessToken = sessionData.session.access_token;
+
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify(senderFormData),
       });
 
@@ -133,7 +154,19 @@ const SendersView: React.FC = () => {
     
     setError(null);
     try {
-      const response = await fetch(`/api/senders?id=${senderId}`, { method: 'DELETE' });
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        setError('Failed to get session. Please log in.');
+        return;
+      }
+      const accessToken = sessionData.session.access_token;
+
+      const response = await fetch(`/api/senders?id=${senderId}`, { 
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to delete sender');
@@ -149,9 +182,19 @@ const SendersView: React.FC = () => {
     setError(null);
     
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        setError('Failed to get session. Please log in.');
+        return;
+      }
+      const accessToken = sessionData.session.access_token;
+
       const response = await fetch(`/api/senders/${sender.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({ is_active: newStatus }),
       });
 
@@ -208,20 +251,39 @@ const SendersView: React.FC = () => {
     setUploadError(null);
     
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        setUploadError('Failed to get session. Please log in.');
+        setIsUploading(false);
+        return;
+      }
+      const accessToken = sessionData.session.access_token;
+
       for (const row of csvPreview) {
         if (!row.sender_email) continue;
-        await fetch('/api/senders', {
+        // TODO: Consider batching these requests or using a dedicated bulk endpoint if available
+        const response = await fetch('/api/senders', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
           body: JSON.stringify({
             sender_name: row.sender_name,
             sender_email: row.sender_email,
-            is_active: true
+            is_active: true // Default to active for bulk imported senders
           }),
         });
+         if (!response.ok) {
+          const errorData = await response.json();
+          // If one row fails, we stop and report error. Alternative: collect errors and continue.
+          throw new Error(`Failed to import ${row.sender_email}: ${errorData.error || 'Unknown error'}`);
+        }
       }
       setIsUploadModalOpen(false);
-      await fetchSenders();
+      setCsvFile(null);
+      setCsvPreview([]);
+      await fetchSenders(); // Refresh the list
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'An error occurred during import');
     } finally {

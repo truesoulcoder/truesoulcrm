@@ -19,14 +19,12 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const authListenerRef = useRef<Subscription | null>(null);
-
+  
   const [fullName, setFullName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
@@ -34,12 +32,9 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true;
 
     const initializeSession = async () => {
-      console.log("UserContext: Initializing session...");
       try {
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-        console.log("UserContext: After supabase.auth.getSession(), Current session:", currentSession);
-        console.log("UserContext: Session error:", sessionError);
-
+        
         if (sessionError) throw sessionError;
 
         if (isMounted) {
@@ -48,10 +43,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           setUser(currentUser);
 
           if (currentUser) {
-            // FIX: Read 'user_role' from 'user_metadata'
             const userRoleFromMetadata = (currentUser.user_metadata?.user_role as string) || null;
             setRole(userRoleFromMetadata);
-            console.log("UserContext: Initial session - Role determined:", userRoleFromMetadata); // NEW LOG
 
             const userFullName = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || null;
             const userAvatarUrl = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null;
@@ -59,8 +52,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             setFullName(userFullName as string);
             setAvatarUrl(userAvatarUrl as string);
           } else {
-            console.log("UserContext: Initial session - No user found.");
-            setRole(null); // Ensure role is cleared if no user
+            setRole(null);
           }
         }
       } catch (err) {
@@ -70,7 +62,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         }
       } finally {
         if (isMounted) {
-          console.log("UserContext: Finished initializeSession.");
           setIsLoading(false);
         }
       }
@@ -80,63 +71,35 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
-        console.log("UserContext: onAuthStateChange event:", _event);
-        console.log("UserContext: onAuthStateChange newSession:", newSession);
         if (isMounted) {
           setSession(newSession);
           const newUser = newSession?.user ?? null;
           setUser(newUser);
 
           if (newUser) {
-            // FIX: Read 'user_role' from 'user_metadata'
             const userRoleFromMetadata = (newUser.user_metadata?.user_role as string) || null;
             setRole(userRoleFromMetadata);
-            console.log("UserContext: Auth state change - Role determined:", userRoleFromMetadata); // NEW LOG
 
             const userFullName = newUser.user_metadata?.full_name || newUser.user_metadata?.name || newUser.email?.split('@')[0] || null;
             const userAvatarUrl = newUser.user_metadata?.avatar_url || newUser.user_metadata?.picture || null;
 
             setFullName(userFullName as string);
             setAvatarUrl(userAvatarUrl as string);
-
           } else {
-            console.log("UserContext: Auth state change - User logged out.");
             setRole(null);
             setFullName(null);
             setAvatarUrl(null);
           }
-          console.log("UserContext: Finished onAuthStateChange.");
           setIsLoading(false);
         }
       }
     );
 
-    authListenerRef.current = subscription;
-
     return () => {
       isMounted = false;
-      authListenerRef.current?.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, []);
-
-  useEffect(() => {
-    // This effect handles redirects after loading is complete
-    if (!isLoading) {
-      if (session) {
-        // Ensure user is on dashboard if logged in
-        if (router.pathname !== '/dashboard') {
-            router.push('/dashboard');
-        }
-      } else {
-        // Ensure user is on login (root) if not logged in
-        if (router.pathname !== '/') { // FIX: Changed from '/login' to '/'
-            router.push('/');
-        }
-      }
-    }
-  }, [session, isLoading, router.pathname, router]);
-
-  const safeAvatarUrl = avatarUrl || '/default-avatar.png';
 
   const value = {
     session,
@@ -145,18 +108,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     isLoading,
     error,
     fullName,
-    avatarUrl: safeAvatarUrl,
+    avatarUrl,
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-base-100">
-        <span className="loading loading-spinner loading-lg text-primary"></span>
-        <p className="mt-4 text-lg">Loading Application...</p>
-      </div>
-    );
-  }
-
+  // The loading state is now handled by the RequireAuth component,
+  // which prevents rendering of protected routes until the user state is confirmed.
   return (
     <UserContext.Provider value={value}>
       {children}
