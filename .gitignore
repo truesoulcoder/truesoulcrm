@@ -9,3 +9,5 @@ dealpig-sender-13e3b5ed13ab.json
 .vercel
 .vscode
 memory.json
+supabase
+src/supabase
