@@ -1,12 +1,13 @@
-// src/components/EdgeFunctionTriggerProvider.tsx
 'use client';
 import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { Session } from '@supabase/supabase-js';
 
 export default function EdgeFunctionTriggerProvider() {
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      // Also trigger on INITIAL_SESSION to handle existing sessions on page load
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
         await triggerSetTrueSoulRole(session);
       }
     });
@@ -17,32 +18,32 @@ export default function EdgeFunctionTriggerProvider() {
   return null;
 }
 
-async function triggerSetTrueSoulRole(session: any) {
+async function triggerSetTrueSoulRole(session: Session) {
   const user = session?.user;
   if (!user) return;
 
+  // The payload seems to just need user id and email for the function to work
   const payload = {
     user_id: user.id,
     user_email: user.email,
-    user_role: user.user_metadata?.user_role || null,
-    full_name: user.user_metadata?.full_name || null,
-    avatar_url: user.user_metadata?.avatar_url || null,
   };
 
   try {
-    const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-user-role', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify(payload)
+    console.log('Invoking set-user-role function...');
+    // Use the Supabase JS client's `invoke` method.
+    // This handles the URL, auth headers, and CORS correctly.
+    const { data, error } = await supabase.functions.invoke('set-user-role', {
+      body: payload,
     });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Edge Function error: ${res.status} ${text}`);
+
+    if (error) {
+      throw error; // Throw the error to be caught by the catch block
     }
+
+    console.log('Edge Function `set-user-role` invoked successfully.', data);
+
   } catch (err) {
-    console.error('Failed to trigger Edge Function:', err);
+    // The caught error will have more details than the generic 'Failed to fetch'
+    console.error('Failed to trigger Edge Function `set-user-role`:', err);
   }
 }
