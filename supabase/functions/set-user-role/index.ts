@@ -27,13 +27,25 @@ function getCorsHeaders(origin: string | null): Record<string, string> {
   ) ? origin : allowedOrigins[0];
 
   return {
-    'Access-Control-Allow-Origin': allowedOrigin,  // Must be a specific origin, not '*'
+    'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Content-Type': 'application/json',
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Max-Age': '86400' // 24 hours
+    'Access-Control-Max-Age': '86400'
   };
+}
+
+// Helper function to create a response with CORS headers
+function responseWithCors(body: any, status: number, headers: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...headers,
+      'Access-Control-Allow-Origin': headers['Access-Control-Allow-Origin'] || 'https://truesoulpartners.vercel.app',
+      'Access-Control-Allow-Credentials': 'true'
+    }
+  });
 }
 
 // Initialize Supabase clients with proper typing
@@ -56,37 +68,31 @@ serve(async (req: Request) => {
   const origin = req.headers.get('origin') || '';
   const corsHeaders = getCorsHeaders(origin);
 
-// Handle CORS preflight
-if (req.method === 'OPTIONS') {
-  const corsHeaders = {
-    ...getCorsHeaders(origin),
-    // Ensure these headers are explicitly set for preflight
-    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Max-Age': '86400',
-    'Access-Control-Allow-Credentials': 'true'
-  };
-  
-  return new Response(null, { 
-    status: 204,
-    headers: corsHeaders
-  });
-}
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return responseWithCors(null, 204, {
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
+      'Access-Control-Max-Age': '86400'
+    });
+  }
 
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: corsHeaders }
+    return responseWithCors(
+      { error: 'Method not allowed' },
+      405,
+      corsHeaders
     );
   }
 
   // Get the JWT from the Authorization header
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
-    return new Response(
-      JSON.stringify({ error: 'No authorization header' }),
-      { status: 401, headers: corsHeaders }
+    return responseWithCors(
+      { error: 'No authorization header' },
+      401,
+      corsHeaders
     );
   }
 
@@ -98,9 +104,10 @@ if (req.method === 'OPTIONS') {
     // Verify the token is valid
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: corsHeaders }
+      return responseWithCors(
+        { error: 'Invalid or expired token' },
+        401,
+        corsHeaders
       );
     }
 
@@ -109,9 +116,10 @@ if (req.method === 'OPTIONS') {
     try {
       requestData = await req.json();
     } catch (e) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid JSON body' }),
-        { status: 400, headers: corsHeaders }
+      return responseWithCors(
+        { error: 'Invalid JSON body' },
+        400,
+        corsHeaders
       );
     }
 
@@ -119,9 +127,10 @@ if (req.method === 'OPTIONS') {
 
     // Validate required fields
     if (!user_email || !user_id) {
-      return new Response(
-        JSON.stringify({ error: 'Missing user_email or user_id in request' }),
-        { status: 400, headers: corsHeaders }
+      return responseWithCors(
+        { error: 'Missing user_email or user_id in request' },
+        400,
+        corsHeaders
       );
     }
 
@@ -147,9 +156,10 @@ if (req.method === 'OPTIONS') {
 
     if (updateAuthError) {
       console.error('Error updating auth.users metadata:', updateAuthError.message);
-      return new Response(
-        JSON.stringify({ error: `Auth update failed: ${updateAuthError.message}` }),
-        { status: 500, headers: corsHeaders }
+      return responseWithCors(
+        { error: `Auth update failed: ${updateAuthError.message}` },
+        500,
+        corsHeaders
       );
     }
 
@@ -170,27 +180,27 @@ if (req.method === 'OPTIONS') {
 
     if (upsertProfileError) {
       console.error('Error upserting into public.profiles:', upsertProfileError.message);
-      return new Response(
-        JSON.stringify({ error: `Profile upsert failed: ${upsertProfileError.message}` }),
-        { status: 500, headers: corsHeaders }
+      return responseWithCors(
+        { error: `Profile upsert failed: ${upsertProfileError.message}` },
+        500,
+        corsHeaders
       );
     }
 
     console.log(`User ${user_email} (${user_id}) processed. Role: ${newRole}. Profile upserted/updated.`);
-    return new Response(
-      JSON.stringify({
-        success: true,
-        userId: user_id,
-        userRole: newRole
-      }),
-      { status: 200, headers: corsHeaders }
-    );
+    return responseWithCors({
+      success: true,
+      userId: user_id,
+      userRole: newRole
+    }, 200, corsHeaders);
+    
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Unhandled error in set-user-role function:', errorMessage);
-    return new Response(
-      JSON.stringify({ error: `An unexpected error occurred: ${errorMessage}` }),
-      { status: 500, headers: corsHeaders }
+    return responseWithCors(
+      { error: `An unexpected error occurred: ${errorMessage}` },
+      500,
+      corsHeaders
     );
   }
 });
