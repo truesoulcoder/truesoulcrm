@@ -27,7 +27,7 @@ function getCorsHeaders(origin: string | null): Record<string, string> {
   ) ? origin : allowedOrigins[0];
 
   return {
-    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Origin': allowedOrigin,  // Must be a specific origin, not '*'
     'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Content-Type': 'application/json',
@@ -60,13 +60,7 @@ serve(async (req: Request) => {
 if (req.method === 'OPTIONS') {
   return new Response(null, { 
     status: 204,
-    headers: {
-      ...corsHeaders,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
-      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      'Access-Control-Max-Age': '86400',
-      'Access-Control-Allow-Credentials': 'true'
-    }
+    headers: getCorsHeaders(origin)
   });
 }
 
