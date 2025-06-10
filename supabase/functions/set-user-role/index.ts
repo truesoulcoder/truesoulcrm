@@ -58,9 +58,18 @@ serve(async (req: Request) => {
 
 // Handle CORS preflight
 if (req.method === 'OPTIONS') {
+  const corsHeaders = {
+    ...getCorsHeaders(origin),
+    // Ensure these headers are explicitly set for preflight
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Credentials': 'true'
+  };
+  
   return new Response(null, { 
     status: 204,
-    headers: getCorsHeaders(origin)
+    headers: corsHeaders
   });
 }
 
