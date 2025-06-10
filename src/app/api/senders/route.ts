@@ -3,70 +3,74 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { Database } from '@/types';
 
-// Helper to create Supabase client with full cookie handling
-const createSupabaseServerClient = (cookieStore: ReturnType<typeof cookies>) => {
+interface CookieStore {
+  get(name: string): { value: string } | undefined;
+  set(name: string, value: string, options?: CookieOptions): void;
+}
+
+const createSupabaseServerClient = (): ReturnType<typeof createServerClient<Database>> => {
+  const cookieStore = cookies() as unknown as CookieStore;
+  
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        get(name: string) {
+          try {
+            return cookieStore.get(name)?.value;
+          } catch (err) {
+            console.error('Error getting cookie:', err);
+            return undefined;
+          }
         },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set({ name, value, ...options });
-          });
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            cookieStore.set(name, value, options);
+          } catch (err) {
+            console.error('Error setting cookie:', err);
+          }
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.set(name, '', options);
+          } catch (err) {
+            console.error('Error removing cookie:', err);
+          }
         }
       },
     }
   );
 };
 
-export async function GET(request: NextRequest) {
-  const cookieStore = cookies();
-  const supabase = createSupabaseServerClient(cookieStore);
-
-  try {
-    const { data: senders, error } = await supabase.from('senders').select('*');
-
-    if (error) {
-      console.error('Error fetching senders:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json(senders);
-  } catch (e: any) {
-    console.error('Unexpected error in GET /api/senders:', e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
-}
-
 export async function POST(request: NextRequest) {
-  const cookieStore = cookies();
-  const supabase = createSupabaseServerClient(cookieStore);
+  const supabase = createSupabaseServerClient();
+
+  // Verify session exists
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json(
+      { error: 'Not authenticated' },
+      { status: 401 }
+    );
+  }
 
   try {
-    // Using 'email' and 'name' as per db_types.ts (senders table definition)
-    const { sender_email, sender_name } = await request.json();
+    const body = await request.json();
+    
+    // Your sender creation logic here
+    const { sender_email, sender_name } = body;
 
     if (!sender_email) {
       return NextResponse.json({ error: 'sender_email is required' }, { status: 400 });
     }
-    if (!sender_name) { // Assuming name is also required based on schema (NOT NULL)
+    if (!sender_name) { 
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
-    }
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      console.error('Auth error in POST /api/senders:', authError);
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
     const { data: newSender, error: insertError } = await supabase
       .from('senders')
-      .insert([{ sender_email, sender_name, user_id: user.id }]) 
+      .insert([{ sender_email, sender_name, user_id: session.user.id }]) 
       .select()
       .single();
 
@@ -76,15 +80,35 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(newSender, { status: 201 });
-  } catch (e: any) {
-    console.error('Unexpected error in POST /api/senders:', e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (error) {
+    console.error('Error in POST /api/senders:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET() {
+  const supabase = createSupabaseServerClient();
+
+  try {
+    const { data: senders, error } = await supabase.from('senders').select('*');
+    
+    if (error) throw error;
+    
+    return NextResponse.json(senders);
+  } catch (error) {
+    console.error('Error fetching senders:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  const cookieStore = cookies();
-  const supabase = createSupabaseServerClient(cookieStore);
+  const supabase = createSupabaseServerClient();
 
   try {
     const { searchParams } = new URL(request.url);
@@ -105,8 +129,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ message: 'Sender deleted successfully' }, { status: 200 });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Unexpected error in DELETE /api/senders:', e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

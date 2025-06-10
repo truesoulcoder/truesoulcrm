@@ -47,38 +47,37 @@ export async function updateUserRole(userData: {
     }
     const user = userResponse.user
 
-    // Attempt update with retry
-    let retries = 3
-    let lastError: Error | null = null
-    
-    while (retries > 0) {
-      try {
-        const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
-          user_metadata: {
-            ...(user.user_metadata || {}), // Preserve existing metadata
-            user_role: newRole,
-            full_name: full_name || user.user_metadata?.full_name || null,
-            avatar_url: avatar_url || user.user_metadata?.avatar_url || null
-          }
-        })
-
-        if (!updateAuthError) {
-          break // Success
+    // Attempt update via Auth API first
+    try {
+      const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
+        user_metadata: {
+          ...(user.user_metadata || {}),
+          user_role: newRole,
+          full_name: full_name || user.user_metadata?.full_name || null,
+          avatar_url: avatar_url || user.user_metadata?.avatar_url || null
         }
-        
-        lastError = new Error(`Auth update failed: ${updateAuthError.message}`)
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-      }
-      
-      retries--
-      if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1s before retry
-      }
+      });
+
+      if (!updateAuthError) return { success: true };
+    } catch (authError) {
+      console.error('Auth API update failed, attempting direct SQL fallback', authError);
     }
 
-    if (lastError) {
-      throw lastError
+    // Fallback to direct SQL update
+    const { error: sqlError } = await supabaseAdmin
+      .from('users')
+      .update({ 
+        raw_user_meta_data: {
+          ...(user.user_metadata || {}),
+          user_role: newRole,
+          full_name: full_name || user.user_metadata?.full_name || null,
+          avatar_url: avatar_url || user.user_metadata?.avatar_url || null
+        }
+      })
+      .eq('id', user_id);
+
+    if (sqlError) {
+      throw new Error(`Both Auth API and SQL update failed: ${sqlError.message}`);
     }
 
     // Upsert profile
