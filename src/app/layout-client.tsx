@@ -1,40 +1,45 @@
 "use client";
 
 import { HeroUIProvider, ToastProvider } from "@heroui/react";
+import { usePathname } from "next/navigation";
 import { useEffect } from 'react';
 
 import MainAppShell from '@/components/layout/MainAppShell';
-import { ThemeProvider as ActualStatefulThemeProvider } from '@/contexts/ThemeContext';
-import { useTheme } from '@/hooks/useTheme';
+import { ThemeProvider, useThemeContext } from '@/contexts/ThemeContext';
 
-function ThemeEffectAndAppShell({ children }: { children: React.ReactNode }) {
-  const { theme } = useTheme();
+// Define which paths are public and should not have the sidebar/navbar
+const publicPaths = ['/'];
 
+// This new component will correctly apply the theme and decide whether to show the App Shell
+function AppStructure({ children }: { children: React.ReactNode }) {
+  const { resolvedTheme } = useThemeContext();
+  const pathname = usePathname();
+  const isPublicPage = publicPaths.includes(pathname);
+
+  // Apply theme to the root <html> element
   useEffect(() => {
-    const root = document.documentElement;
+    document.documentElement.setAttribute('data-theme', resolvedTheme);
+  }, [resolvedTheme]);
 
-    if (theme && theme !== 'system') {
-      root.setAttribute('data-theme', theme);
-    } else {
-      if (typeof window !== 'undefined') {
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        root.setAttribute('data-theme', systemTheme);
-      }
-    }
-  }, [theme]);
-
+  // If it's a public page, show only the page content.
+  // Otherwise, wrap the page content in the MainAppShell.
+  if (isPublicPage) {
+    return <>{children}</>;
+  }
+  
   return <MainAppShell>{children}</MainAppShell>;
 }
 
+
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ActualStatefulThemeProvider>
+    // Wrap the app in all the necessary providers
+    <ThemeProvider>
       <HeroUIProvider>
         <ToastProvider>
-          <ThemeEffectAndAppShell>{children}</ThemeEffectAndAppShell>
+          <AppStructure>{children}</AppStructure>
         </ToastProvider>
       </HeroUIProvider>
-    </ActualStatefulThemeProvider>
+    </ThemeProvider>
   );
 }
-

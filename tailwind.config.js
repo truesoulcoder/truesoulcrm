@@ -16,7 +16,8 @@ module.exports = {
   },
   plugins: [heroui(), require("daisyui")],
   daisyui: {
-    themes: ["dark"], // You can add more themes here e.g. ["light", "dark", "cupcake"]
+    // FIX: Added "light" and "night" to the themes array
+    themes: ["dark", "light", "night"], // You can add more themes here e.g. ["light", "dark", "cupcake"]
     darkTheme: "dark", // name of one of the included themes for dark mode
     base: true, // applies background color and foreground color for root element by default
     styled: true, // include daisyUI colors and design decisions for all components

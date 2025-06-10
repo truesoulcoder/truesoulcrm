@@ -4,6 +4,7 @@ import ClientLayout from './layout-client';
 import type { Metadata } from 'next';
 import './globals.css';
 import EdgeFunctionTriggerProvider from '@/components/EdgeFunctionTriggerProvider';
+import RequireAuth from '@/components/RequireAuth'; // Import the component
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -27,9 +28,12 @@ export default function RootLayout({
   return (
     <html data-theme="dark" lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-      <EdgeFunctionTriggerProvider />
+        <EdgeFunctionTriggerProvider />
         <UserProvider>
-          <ClientLayout>{children}</ClientLayout>
+          {/* This component will now manage routing based on auth state */}
+          <RequireAuth>
+            <ClientLayout>{children}</ClientLayout>
+          </RequireAuth>
         </UserProvider>
       </body>
     </html>
