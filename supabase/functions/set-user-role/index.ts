@@ -56,17 +56,19 @@ serve(async (req: Request) => {
   const origin = req.headers.get('origin') || '';
   const corsHeaders = getCorsHeaders(origin);
 
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { 
-      status: 204,
-      headers: {
-        ...corsHeaders,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
-        'Access-Control-Max-Age': '86400'
-      }
-    });
-  }
+// Handle CORS preflight
+if (req.method === 'OPTIONS') {
+  return new Response(null, { 
+    status: 204,
+    headers: {
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      'Access-Control-Max-Age': '86400',
+      'Access-Control-Allow-Credentials': 'true'
+    }
+  });
+}
 
   // Only allow POST requests
   if (req.method !== 'POST') {

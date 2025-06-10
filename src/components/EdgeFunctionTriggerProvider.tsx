@@ -30,15 +30,16 @@ async function triggerSetTrueSoulRole(session: any) {
   };
 
   try {
-    const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-user-role', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
-      credentials: 'include',  // Important for CORS with credentials
-      body: JSON.stringify(payload)
-    });
+      const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-user-role', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        credentials: 'include',
+        mode: 'cors',  // Explicitly enable CORS mode
+        body: JSON.stringify(payload)
+      });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Edge Function error: ${res.status} ${text}`);
