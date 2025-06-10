@@ -1,4 +1,3 @@
-// In middleware.ts
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -13,14 +12,7 @@ export async function middleware(request: NextRequest) {
   });
 
   // Set CORS headers for all responses
-  const allowedOrigins = [
-    'https://truesoulpartners.vercel.app',
-    'http://localhost:3000'
-  ];
-  const origin = request.headers.get('origin');
-  if (origin && allowedOrigins.includes(origin)) {
-    response.headers.set('Access-Control-Allow-Origin', origin);
-  }
+  response.headers.set('Access-Control-Allow-Origin', 'https://truesoulpartners.vercel.app');
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'authorization, content-type');
   response.headers.set('Access-Control-Allow-Credentials', 'true');
@@ -34,9 +26,10 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  // Skip middleware for static files only
-  if (request.nextUrl.pathname.startsWith('/_next/') || 
-      request.nextUrl.pathname.includes('.')) {
+  // Skip middleware for static files or API routes that don't need auth check
+  if (request.nextUrl.pathname.startsWith('/_next/') ||
+      request.nextUrl.pathname.includes('.') ||
+      request.nextUrl.pathname.startsWith('/api')) {
     return response;
   }
 
@@ -50,42 +43,27 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          response.cookies.set({
-            name,
-            value,
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            ...options
-          });
+          request.cookies.set({ name, value, ...options });
+          response.cookies.set({ name, value, ...options });
         },
         remove(name: string, options: CookieOptions) {
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-            maxAge: 0
-          });
+          request.cookies.set({ name, value: '', ...options });
+          response.cookies.delete(name, options);
         },
       },
     }
   );
 
-  // Skip auth for login page
-  if (request.nextUrl.pathname === '/') {
-    return response;
-  }
-
   console.log("After createServerClient, before supabase.auth.getUser()");
   const { data: { user }, error } = await supabase.auth.getUser();
   console.log("After supabase.auth.getUser(), user:", user ? user.id : 'null', "error:", error ? error.message : 'null');
 
-  // Redirect to login if not authenticated
-  if (!user) {
-    console.log('No user found, redirecting to login');
-    const url = new URL('/', request.url);
-    return NextResponse.redirect(url);
+  // --- Auth Check Logic ---
+  // Redirect to root (login page) if no user and not already on the login page
+  if (!user && request.nextUrl.pathname !== '/') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/';
+      return NextResponse.redirect(url);
   }
 
   console.log("End of middleware, before returning response");
@@ -94,6 +72,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // Include API routes that need auth
     '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/api/senders/:path*'
   ],
 }
