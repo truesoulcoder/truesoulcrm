@@ -36,6 +36,7 @@ async function triggerSetTrueSoulRole(session: any) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
       },
+      credentials: 'include',  // Important for CORS with credentials
       body: JSON.stringify(payload)
     });
     if (!res.ok) {

@@ -4,11 +4,11 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 console.log('Function `set-user-role` up and running!');
 
 // Define allowed origins
-const allowedOrigins = new Set([
+const allowedOrigins = [
   'http://localhost:3000',
   'https://truesoulpartners.vercel.app',
-  // Add any other domains as needed
-]);
+  'https://truesoulpartners.vercel.app/'
+];
 
 // Interface for the request body
 interface UserData {
@@ -21,13 +21,18 @@ interface UserData {
 
 // Helper function to get CORS headers
 function getCorsHeaders(origin: string | null): Record<string, string> {
-  const isAllowed = origin && allowedOrigins.has(origin);
+  // For development, allow the request origin or default to first allowed origin
+  const allowedOrigin = origin && allowedOrigins.some(allowed => 
+    origin.replace(/\/$/, '') === allowed.replace(/\/$/, '')
+  ) ? origin : allowedOrigins[0];
+
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : Array.from(allowedOrigins)[0],
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Credentials': 'true'
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400' // 24 hours
   };
 }
 
@@ -55,7 +60,11 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { 
       status: 204,
-      headers: corsHeaders 
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
+        'Access-Control-Max-Age': '86400'
+      }
     });
   }
 
