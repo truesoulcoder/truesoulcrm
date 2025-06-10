@@ -45,7 +45,13 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
 
   const checkStreetView = useCallback((latLng: google.maps.LatLngLiteral) => {
     streetViewServiceRef.current?.getPanorama({ location: latLng, radius: 50 }, (data, status) => {
-      setHasStreetView(status === 'OK');
+      if (status === 'OK') {
+        setHasStreetView(true);
+        setShowStreetView(true); // Default to showing street view if available
+      } else {
+        setHasStreetView(false);
+        setShowStreetView(false); // Can't show what's not there
+      }
     });
   }, []);
 
@@ -66,6 +72,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
         setHasStreetView(false);
       }
     } catch (error) {
+      console.error(`Geocoding error for address "${addr}":`, error);
       setStatusMessage('Error finding location.');
       setPosition(null);
       setHasStreetView(false);
@@ -100,7 +107,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
     disableDefaultUI: true,
     gestureHandling: 'cooperative',
   };
-
+  
   const panoramaOptions = {
     position,
     pov: { heading: 34, pitch: 10 },
@@ -112,28 +119,29 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
 
   return (
     <div style={containerStyle}>
-      {hasStreetView && (
-        <button
-          onClick={() => setShowStreetView(prev => !prev)}
-          className="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-10 bg-base-100/70 hover:bg-base-100"
-          title={showStreetView ? "Switch to Map View" : "Switch to Street View"}
-        >
-          {showStreetView ? <MapIcon size={18} /> : <Eye size={18} />}
-        </button>
-      )}
+      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} {...mapOptions}>
+        {hasStreetView && (
+          <button
+            onClick={() => setShowStreetView(prev => !prev)}
+            className="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-10 bg-base-100/70 hover:bg-base-100"
+            title={showStreetView ? "Switch to Map View" : "Switch to Street View"}
+          >
+            {showStreetView ? <MapIcon size={18} /> : <Eye size={18} />}
+          </button>
+        )}
 
-      {hasStreetView && showStreetView ? (
-        <StreetViewPanorama options={panoramaOptions} />
-      ) : (
-        <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} {...mapOptions}>
+        {showStreetView && hasStreetView ? (
+          <StreetViewPanorama options={panoramaOptions} />
+        ) : (
           <MarkerF position={position} />
-          {!hasStreetView && (
-            <div className="absolute bottom-2 left-2 bg-base-100/70 p-1.5 rounded text-xs text-base-content">
-              Street View not available for this location.
-            </div>
-          )}
-        </GoogleMap>
-      )}
+        )}
+        
+        {!hasStreetView && (
+          <div className="absolute bottom-2 left-2 bg-base-100/70 p-1.5 rounded text-xs text-base-content">
+            Street View not available for this location.
+          </div>
+        )}
+      </GoogleMap>
     </div>
   );
 };
