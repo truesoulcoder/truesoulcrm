@@ -63,7 +63,8 @@ const LeadsView: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-0 max-w-full">
+    <div className="w-full h-full">
+      {/* The bento box styling (padding, bg, shadow, rounded) is now handled by MainAppShell */}
       <div className="px-4">
         <div className="mb-8 max-w-full overflow-x-hidden">
           {/* The LeadUploader component is now self-contained. 

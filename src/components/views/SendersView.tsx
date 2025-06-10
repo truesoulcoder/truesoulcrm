@@ -292,7 +292,8 @@ const SendersView: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="w-full h-full">
+      {/* The bento box styling (padding, bg, shadow, rounded) is now handled by MainAppShell */}
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-base-content">Email Senders</h1>
         <div className="flex gap-2 w-full sm:w-auto">

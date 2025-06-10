@@ -1,106 +1,116 @@
-// src/app/api/gmail/profile/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { people, people_v1 } from '@googleapis/people';
+import { createClient } from '@supabase/supabase-js';
+import { JWT } from 'google-auth-library';
+import { NextResponse } from 'next/server';
 
-import { createClient } from '@/lib/supabase/server';
+// Ensure these are set in your .env.local
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const googleServiceAccountKeyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY!;
 
-// Helper function to get user role (this is already good as it checks app_metadata)
-function getUserRole(user: any): string {
-  // First check raw_app_meta_data.role
-  if (user?.raw_app_meta_data?.role) {
-    return user.raw_app_meta_data.role;
-  }
-  // Then check app_metadata.role (common in newer Supabase versions)
-  if (user?.app_metadata?.role) {
-    return user.app_metadata.role;
-  }
-  // Default to 'authenticated'
-  return 'authenticated';
+// const supabaseAdmin = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY!); // Moved inside GET
+
+const SCOPES = ['https://www.googleapis.com/auth/userinfo.profile'];
+
+interface EmailSender {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url?: string | null;
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const supabase = await createClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+export async function GET() {
+  if (!supabaseUrl || !supabaseServiceRoleKey || !googleServiceAccountKeyJson) {
+    // Updated error message for clarity
+    return NextResponse.json({ error: 'Missing environment variables for API route initialization' }, { status: 500 });
+  }
 
-    if (userError || !user) {
-      return NextResponse.json({
-        name: null,
-        picture: null,
-        isSuperAdmin: false
-      }, { status: 401 });
+  // Initialize supabaseAdmin client after environment variable check
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+  try {
+    const serviceAccountCredentials = JSON.parse(googleServiceAccountKeyJson);
+
+    const { data: senders, error: fetchError } = await supabaseAdmin
+      .from('senders')
+      .select('id, email, name, avatar_url');
+
+    if (fetchError) {
+      console.error('Error fetching senders from Supabase:', fetchError);
+      return NextResponse.json({ error: 'Failed to fetch senders', details: fetchError.message }, { status: 500 });
     }
 
-    // Get user's role
-    const userRole = getUserRole(user);
-    const isSuperAdmin = userRole === 'superadmin';
+    if (!senders || senders.length === 0) {
+      return NextResponse.json({ message: 'No senders found to process.' });
+    }
 
-    // Directly use user's metadata from auth.users, as profiles table is gone.
-    let currentFullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || user.email;
-    let currentAvatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+    const results = [];
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    let errorCount = 0;
 
-    // If we have a Google OAuth user but no picture, try to get it from Google
-    // We'll update user_metadata directly instead of profiles table.
-    if (user.app_metadata?.provider === 'google' && !currentAvatarUrl) {
+    for (const sender of senders as EmailSender[]) {
       try {
-        // Get the access token from the session
-        const { data: { session } } = await supabase.auth.getSession();
-        const accessToken = session?.provider_token;
+        const jwtClient = new JWT({
+          email: serviceAccountCredentials.client_email,
+          key: serviceAccountCredentials.private_key,
+          scopes: SCOPES,
+          subject: sender.email, // Impersonate the target user
+        });
 
-        if (accessToken) {
-          // Fetch user info from Google
-          const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            }
-          });
+        const peopleService: people_v1.People = people({
+          version: 'v1',
+          auth: jwtClient,
+        });
 
-          if (response.ok) {
-            const googleUser = await response.json();
-            const newAvatarUrl = googleUser.picture;
-            const newFullName = googleUser.name;
+        const person = await peopleService.people.get({
+          resourceName: 'people/me',
+          personFields: 'photos',
+        });
 
-            // Prepare updated user_metadata
-            const updatedMetadata = {
-              ...user.user_metadata,
-              avatar_url: newAvatarUrl,
-              full_name: newFullName || currentFullName // Prioritize new Google name, fallback to existing or derived
-            };
+        const photoUrl = person.data.photos?.find(photo => photo.default)?.url || null;
 
-            // Update the user's metadata directly in auth.users
-            const { error: updateError } = await supabase.auth.updateUser({
-              data: updatedMetadata
-            });
+        if (photoUrl && photoUrl !== sender.avatar_url) {
+          const { error: updateError } = await supabaseAdmin
+            .from('senders')
+            .update({ avatar_url: photoUrl })
+            .eq('id', sender.id);
 
-            if (updateError) {
-              console.error('Error updating user metadata via API:', updateError.message);
-              // Continue with current values if update fails
-            } else {
-              // Update local variables with new data
-              currentFullName = updatedMetadata.full_name;
-              currentAvatarUrl = updatedMetadata.avatar_url;
-            }
+          if (updateError) {
+            console.error(`Error updating avatar for ${sender.email}:`, updateError);
+            results.push({ email: sender.email, status: 'error', message: updateError.message });
+            errorCount++;
+          } else {
+            results.push({ email: sender.email, status: 'updated', newAvatarUrl: photoUrl });
+            updatedCount++;
           }
+        } else if (photoUrl && photoUrl === sender.avatar_url) {
+            results.push({ email: sender.email, status: 'unchanged', avatarUrl: photoUrl });
+            unchangedCount++;
+        } else {
+          results.push({ email: sender.email, status: 'no_photo_found' });
+          unchangedCount++; // Or potentially mark as an issue if expected
         }
-      } catch (error) {
-        console.error('Error fetching Google profile for update:', error);
-        // Continue to return the existing (or derived) profile if there's an error
+      } catch (peopleApiError: any) {
+        console.error(`Error fetching photo for ${sender.email} from People API:`, peopleApiError);
+        results.push({ email: sender.email, status: 'error', message: peopleApiError.message || 'People API Error' });
+        errorCount++;
       }
     }
 
-    // Return the consolidated data
     return NextResponse.json({
-      name: currentFullName,
-      picture: currentAvatarUrl,
-      isSuperAdmin
-    });
-  } catch (error) {
-    console.error('Error in profile API:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to fetch profile',
-        isSuperAdmin: false
+      message: 'Avatar sync process completed.',
+      summary: {
+        totalSenders: senders.length,
+        updated: updatedCount,
+        unchangedOrNoPhoto: unchangedCount,
+        errors: errorCount,
       },
-      { status: 500 }
-    );
+      results,
+    });
+
+  } catch (e: any) {
+    console.error('Unhandled error in sync-gmail-avatars:', e);
+    return NextResponse.json({ error: 'Internal server error', details: e.message }, { status: 500 });
   }
 }

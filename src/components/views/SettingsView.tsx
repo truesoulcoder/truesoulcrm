@@ -3,6 +3,7 @@
 import { Shield, Key, Palette, BarChart2, Building2, Mail, Phone, Image as ImageIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useState, useEffect, useCallback } from 'react';
+import { Button as HeroButton } from '@heroui/react'; // Added HeroUI Button
 
 import { supabase } from '@/lib/supabase/client';
 
@@ -200,6 +201,11 @@ const SettingsView = () => {
             <h2 className="text-2xl font-semibold flex items-center">
               <Shield className="mr-2" size={24} /> Access Control
             </h2>
+            {/* Test Buttons Added Here */}
+            <div className="my-4 space-x-4">
+              <HeroButton>Test HeroUI Button</HeroButton>
+              <button className="btn btn-primary">Test DaisyUI Button</button>
+            </div>
             
             <div className="card bg-base-200 p-6">
               <div className="form-control">
@@ -659,7 +665,8 @@ const SettingsView = () => {
   };
   
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="w-full h-full">
+      {/* The bento box styling (padding, bg, shadow, rounded) is now handled by MainAppShell */}
       <div className="flex flex-col md:flex-row gap-6">
         {/* Sidebar Navigation */}
         <div className="w-full md:w-64 flex-shrink-0">

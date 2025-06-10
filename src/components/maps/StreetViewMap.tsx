@@ -1,7 +1,7 @@
 // src/components/maps/StreetViewMap.tsx
 'use client';
 
-import { GoogleMap, StreetViewPanorama, MarkerF } from '@react-google-maps/api';
+import { GoogleMap, StreetViewPanorama, Marker } from '@react-google-maps/api';
 import { MapPin, AlertTriangle, Loader2, Eye, Map as MapIcon } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGoogleMapsApi } from './GoogleMapsLoader';
@@ -47,16 +47,22 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
     streetViewServiceRef.current?.getPanorama({ location: latLng, radius: 50 }, (data, status) => {
       if (status === 'OK') {
         setHasStreetView(true);
-        setShowStreetView(true); // Default to showing street view if available
+        setShowStreetView(true);
       } else {
         setHasStreetView(false);
-        setShowStreetView(false); // Can't show what's not there
+        setShowStreetView(false);
       }
     });
   }, []);
 
   const geocodeAddress = useCallback(async (addr: string) => {
-    if (!geocoderRef.current) return;
+    if (!geocoderRef.current || !addr.trim()) {
+        setIsLoading(false);
+        setStatusMessage('No address provided.');
+        setPosition(null);
+        setHasStreetView(false);
+        return;
+    };
     setIsLoading(true);
     setStatusMessage('Finding location...');
     try {
@@ -82,15 +88,8 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
   }, [checkStreetView]);
 
   useEffect(() => {
-    if (address) {
-      const handler = setTimeout(() => geocodeAddress(address), 500);
-      return () => clearTimeout(handler);
-    } else {
-      setIsLoading(false);
-      setStatusMessage('No address provided.');
-      setPosition(null);
-      setHasStreetView(false);
-    }
+    const handler = setTimeout(() => geocodeAddress(address), 500);
+    return () => clearTimeout(handler);
   }, [address, geocodeAddress]);
 
   if (isLoading) {
@@ -119,7 +118,11 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
 
   return (
     <div style={containerStyle}>
-      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} {...mapOptions}>
+      <GoogleMap
+        mapContainerStyle={{ width: '100%', height: '100%' }}
+        {...mapOptions}
+        mapId="3fd7ad01f44109d8a07fe0b1" // Pass the Map ID to the GoogleMap component
+      >
         {hasStreetView && (
           <button
             onClick={() => setShowStreetView(prev => !prev)}
@@ -133,7 +136,8 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
         {showStreetView && hasStreetView ? (
           <StreetViewPanorama options={panoramaOptions} />
         ) : (
-          <MarkerF position={position} />
+          // Use the standard Marker component
+          <Marker position={position} />
         )}
         
         {!hasStreetView && (

@@ -3,6 +3,7 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
+import webpack from 'webpack';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,11 +15,15 @@ const nextConfig = {
       allowedOrigins: ['localhost:3000'],
     },
   },
+  transpilePackages: ['@supabase/supabase-js', '@supabase/realtime-js'], // Added line
   images: {
-    domains: [
-      'localhost:3000',
-    ],
     remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/**',
+      },
       {
         protocol: 'https',
         hostname: 'lefvtgqockzqkasylzwb.supabase.co',
@@ -69,6 +74,12 @@ const nextConfig = {
       ...config.resolve.alias,
       '@': path.resolve(__dirname, 'src'),
     };
+
+    // Add IgnorePlugin for fsevents
+    config.plugins = config.plugins || [];
+    config.plugins.push(new webpack.IgnorePlugin({ resourceRegExp: /^fsevents$/ }));
+    config.plugins.push(new webpack.IgnorePlugin({ resourceRegExp: /nunjucks\/src\/node-loaders\.js$/ }));
+
     return config;
   },
   output: 'standalone',

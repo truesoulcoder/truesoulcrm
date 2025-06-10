@@ -151,9 +151,11 @@ const EngineControlView = () => {
   }
   
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 h-full">
-      {/* Left Panel: Controls */}
-      <div className="lg:col-span-1 flex flex-col gap-4 md:gap-6">
+    <div className="w-full h-full">
+      {/* The bento box styling (padding, bg, shadow, rounded) is now handled by MainAppShell */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 h-full">
+        {/* Left Panel: Controls */}
+        <div className="lg:col-span-1 flex flex-col gap-4 md:gap-6">
         <BentoBox>
             <h2 className="card-title text-base-content/80 mb-2">
                 <List className="w-5 h-5"/>
@@ -192,23 +194,24 @@ const EngineControlView = () => {
         </BentoBox>
       </div>
 
-      {/* Right Panel: Logs */}
-      <BentoBox className="lg:col-span-2 min-h-[30rem] flex flex-col">
-          <h2 className="card-title text-base-content/80 mb-4">Job Logs</h2>
-          <div className="bg-base-100 p-2 rounded-lg flex-grow overflow-y-auto">
-              {logs.length > 0 ? (
-                  logs.map(log => (
-                      <div key={log.id} className="font-mono text-xs p-1 border-b border-base-300/50">
-                          <span className="text-info/70 mr-2">{new Date(log.created_at).toLocaleString()}</span>
-                          <span>{log.log_message}</span>
-                      </div>
-                  ))
-              ) : (
-                  <p className="text-center text-base-content/50 pt-10">No logs for selected campaign.</p>
-              )}
-          </div>
-      </BentoBox>
-    </div>
+        {/* Right Panel: Logs */}
+        <BentoBox className="lg:col-span-2 min-h-[30rem] flex flex-col">
+            <h2 className="card-title text-base-content/80 mb-4">Job Logs</h2>
+            <div className="bg-base-100 p-2 rounded-lg flex-grow overflow-y-auto">
+                {logs.length > 0 ? (
+                    logs.map(log => (
+                        <div key={log.id} className="font-mono text-xs p-1 border-b border-base-300/50">
+                            <span className="text-info/70 mr-2">{new Date(log.created_at).toLocaleString()}</span>
+                            <span>{log.log_message}</span>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-center text-base-content/50 pt-10">No logs for selected campaign.</p>
+                )}
+            </div>
+        </BentoBox>
+      </div>
+    // </div> // This closing div was removed as its opening tag is now the root
   );
 };
 
