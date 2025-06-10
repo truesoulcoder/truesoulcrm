@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { Card, CardHeader, CardBody, CardTitle, CardDescription } from '@heroui/react';
+import { Card, CardHeader, CardBody } from '@heroui/react'; // Removed CardTitle, CardDescription
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid } from 'recharts';
 
 const mockData = [
@@ -19,8 +19,10 @@ const CampaignChart = () => {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
-        <CardTitle>Campaign Performance</CardTitle>
-        <CardDescription>Last 7 days</CardDescription>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Campaign Performance</h3>
+          <p className="text-sm text-default-500">Last 7 days</p>
+        </div>
       </CardHeader>
       <CardBody className="flex-grow">
         <ResponsiveContainer width="100%" height="100%">

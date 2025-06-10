@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { Card, CardHeader, CardBody, CardTitle, CardDescription } from '@heroui/react';
+import { Card, CardHeader, CardBody } from '@heroui/react'; // Removed CardTitle, CardDescription
 import { Users, Mail, Settings2, UserPlus, MessageSquareQuote, CheckCircle2 } from 'lucide-react'; // Added more icons
 
 interface ActivityItem {
@@ -49,8 +49,10 @@ const RecentActivity = () => {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
-        <CardTitle>Recent Activity</CardTitle>
-        <CardDescription>Latest updates across your workspace</CardDescription>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Recent Activity</h3>
+          <p className="text-sm text-default-500">Latest updates across your workspace</p>
+        </div>
       </CardHeader>
       <CardBody className="overflow-y-auto flex-grow">
         <div className="space-y-4">

@@ -2,15 +2,17 @@
 'use client';
 
 import React from 'react';
-import { Card, CardHeader, CardBody, CardTitle, CardDescription, Button } from '@heroui/react';
+import { Card, CardHeader, CardBody, Button } from '@heroui/react'; // Removed CardTitle, CardDescription
 import { PlusCircle, UploadCloud, BarChartBig, Settings } from 'lucide-react';
 
 const QuickActions = () => {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
-        <CardTitle>Quick Actions</CardTitle>
-        <CardDescription>Get started quickly</CardDescription>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Quick Actions</h3>
+          <p className="text-sm text-default-500">Get started quickly</p>
+        </div>
       </CardHeader>
       <CardBody className="flex-grow overflow-y-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

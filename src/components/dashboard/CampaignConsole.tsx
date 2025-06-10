@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { Card, CardHeader, CardBody, CardTitle, CardDescription } from '@heroui/react';
+import { Card, CardHeader, CardBody } from '@heroui/react'; // Removed CardTitle, CardDescription
 
 const mockLogs = [
   "INFO: Campaign 'Winter Promo' started successfully.",
@@ -18,8 +18,10 @@ const CampaignConsole = () => {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
-        <CardTitle>Campaign Console</CardTitle>
-        <CardDescription>Live campaign updates</CardDescription>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Campaign Console</h3>
+          <p className="text-sm text-default-500">Live campaign updates</p>
+        </div>
       </CardHeader>
       <CardBody className="overflow-y-auto flex-grow">
         <div className="space-y-2">
