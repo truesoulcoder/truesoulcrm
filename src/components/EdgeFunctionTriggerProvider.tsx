@@ -1,50 +1,31 @@
-// src/components/EdgeFunctionTriggerProvider.tsx
-'use client';
-import { useEffect } from 'react';
-import { supabase } from '@/lib/supabase/client';
+// In EdgeFunctionTriggerProvider.tsx
+'use client'
+import { useEffect } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { updateUserRole } from '@/actions/update-user-role'
 
 export default function EdgeFunctionTriggerProvider() {
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        await triggerSetTrueSoulRole(session);
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          try {
+            await updateUserRole({
+              user_id: session.user.id,
+              user_email: session.user.email!,
+              user_role: session.user.user_metadata?.user_role,
+              full_name: session.user.user_metadata?.full_name,
+              avatar_url: session.user.user_metadata?.avatar_url
+            })
+          } catch (error) {
+            console.error('Failed to update user role:', error)
+          }
+        }
       }
-    });
-    return () => {
-      authListener?.subscription?.unsubscribe();
-    };
-  }, []);
-  return null;
-}
+    )
 
-async function triggerSetTrueSoulRole(session: any) {
-  const user = session?.user;
-  if (!user) return;
+    return () => authListener?.subscription.unsubscribe()
+  }, [])
 
-  const payload = {
-    user_id: user.id,
-    user_email: user.email,
-    user_role: user.user_metadata?.user_role || null,
-    full_name: user.user_metadata?.full_name || null,
-    avatar_url: user.user_metadata?.avatar_url || null,
-  };
-
-  try {
-      const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-user-role', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        credentials: 'include',
-        mode: 'cors',  // Explicitly enable CORS mode
-        body: JSON.stringify(payload)
-      });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Edge Function error: ${res.status} ${text}`);
-    }
-  } catch (err) {
-    console.error('Failed to trigger Edge Function:', err);
-  }
+  return null
 }
