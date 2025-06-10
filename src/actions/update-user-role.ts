@@ -28,22 +28,57 @@ export async function updateUserRole(userData: {
   }
 
   try {
-    // Update user metadata
-    const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
-      user_metadata: {
-        user_role: newRole,
-        full_name: full_name || null,
-        avatar_url: avatar_url || null
-      }
+    console.log('Attempting to update user with:', {
+      user_id,
+      newRole,
+      hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
     })
 
-    if (updateAuthError) {
-      console.error('Auth update error details:', {
-        user_id,
-        newRole,
-        error: updateAuthError
-      })
-      throw new Error(`Auth update failed: ${updateAuthError.message}`)
+    // Validate environment variables
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || typeof process.env.SUPABASE_SERVICE_ROLE_KEY !== 'string') {
+      throw new Error('Invalid SUPABASE_SERVICE_ROLE_KEY configuration')
+    }
+
+    // First verify the user exists
+    const { data: userResponse, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(user_id)
+    if (fetchError || !userResponse?.user) {
+      throw new Error(`User not found: ${fetchError?.message || 'No user data returned'}`)
+    }
+    const user = userResponse.user
+
+    // Attempt update with retry
+    let retries = 3
+    let lastError: Error | null = null
+    
+    while (retries > 0) {
+      try {
+        const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
+          user_metadata: {
+            ...(user.user_metadata || {}), // Preserve existing metadata
+            user_role: newRole,
+            full_name: full_name || user.user_metadata?.full_name || null,
+            avatar_url: avatar_url || user.user_metadata?.avatar_url || null
+          }
+        })
+
+        if (!updateAuthError) {
+          break // Success
+        }
+        
+        lastError = new Error(`Auth update failed: ${updateAuthError.message}`)
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+      }
+      
+      retries--
+      if (retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1s before retry
+      }
+    }
+
+    if (lastError) {
+      throw lastError
     }
 
     // Upsert profile
