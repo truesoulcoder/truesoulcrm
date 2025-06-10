@@ -256,6 +256,15 @@ const BentoDashboardPage = () => {
     },
   ]; 
 
+  // const dashboardItems: DashboardItem[] = [
+  //   {
+  //     i: 'testItem',
+  //     title: 'Test Item',
+  //     component: <div style={{ padding: '20px', backgroundColor: 'lightblue', height: '100%' }}>Hello World</div>,
+  //     defaultSize: { w: 1, h: 1 },
+  //   },
+  // ];
+
   // Placeholder for defaultLayouts, will be populated later
   const defaultLayouts: Layouts = {
     lg: [
@@ -309,6 +318,14 @@ const BentoDashboardPage = () => {
       { i: 'quickActions', x: 0, y: 10, w: 1, h: 2, minW: 1, minH: 2 },
     ],
   };
+
+  // const defaultLayouts: Layouts = {
+  //   lg: [{ i: 'testItem', x: 0, y: 0, w: 1, h: 1 }],
+  //   md: [{ i: 'testItem', x: 0, y: 0, w: 1, h: 1 }],
+  //   sm: [{ i: 'testItem', x: 0, y: 0, w: 1, h: 1 }],
+  //   xs: [{ i: 'testItem', x: 0, y: 0, w: 1, h: 1 }],
+  //   xxs: [{ i: 'testItem', x: 0, y: 0, w: 1, h: 1 }],
+  // };
 
   const getFromLS = (key: string): Layouts | undefined => {
     if (typeof window !== 'undefined') {
@@ -431,7 +448,7 @@ const BentoDashboardPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-neutral-content/70">Welcome back! Here's what's happening with your campaigns.</p>
+          <p className="text-neutral-content/70">Welcome back! Here&apos;s what&apos;s happening with your campaigns.</p>
         </div>
         <div className="flex items-center gap-2">
           {!isEditMode ? (
@@ -475,13 +492,17 @@ const BentoDashboardPage = () => {
         useCSSTransforms={mounted}
       >
         {dashboardItems.map((item) => (
-          <div key={item.i} className={`bg-base-300 rounded-lg shadow-md overflow-hidden ${isEditMode ? 'cursor-move' : ''}`}>
+          <div 
+            key={item.i} 
+            className={`bg-base-300 rounded-lg shadow-md overflow-hidden ${isEditMode ? 'cursor-move' : ''}`}
+            style={{ backgroundColor: 'gray', minHeight: '50px', minWidth: '50px', border: '1px solid blue' }} // Added styles
+          >
             {isEditMode && (
               <div className="drag-handle bg-primary-500 text-primary-content p-1 text-center cursor-grab active:cursor-grabbing">
                 <Icon icon="mdi:drag" className="inline-block h-5 w-5" /> {item.title}
               </div>
             )}
-            <div className="p-1 h-full">
+            <div className="p-1 h-full" style={{ outline: '1px solid red' }}> {/* Added outline */}
               {item.component}
             </div>
           </div>
