@@ -17,7 +17,7 @@ export async function updateUserRole(userData: {
 
   // Determine user role
   let newRole = user_role
-  if (user_email === 'chrisphillips@truesoulpartners.com') {
+  if (user_email === 'SET_USER_ROLE_FUNCTION_SUPER_ADMIN_EMAIL') {
     newRole = 'superadmin'
   } else if (!newRole) {
     newRole = 'guest'
