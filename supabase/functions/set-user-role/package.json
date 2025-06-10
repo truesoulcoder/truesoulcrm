@@ -1,0 +1,9 @@
+﻿{
+  "name": "set-user-role",
+  "version": "1.0.0",
+  "description": "Handle user role assignment",
+  "main": "index.ts",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.0"
+  }
+}

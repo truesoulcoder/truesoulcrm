@@ -1,0 +1,2 @@
+-- Initial migration
+-- This file is intentionally left blank to bypass the remote schema issue
