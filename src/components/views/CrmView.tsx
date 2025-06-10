@@ -4,7 +4,8 @@
 import OmegaTable from '@/components/layout/OmegaTable';
 
 /**
- * CrmView serves as a layout wrapper for the main OmegaTable component.
+ * CrmView now serves as a simple layout wrapper.
+ * The OmegaTable component is self-sufficient and handles all its own data fetching and state management.
  */
 export default function CrmView() {
   return (

@@ -3,12 +3,11 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import type { Database, Tables, Enums } from '@/types/supabase';
-import { cookies } from 'next/headers';
+import type { Database } from '@/types/supabase';
 
 // Define shorter types for convenience based on the new schema
 type Property = Tables<'properties'>;
-type PropertyUpdate = Partial<Tables<'properties'>>; // Use Partial for updates
+type PropertyUpdate = TablesUpdate<'properties'>;
 
 // Define a consistent server action response
 interface ServerActionResponse<T> {
@@ -27,8 +26,7 @@ export async function updatePropertyAction(
   propertyId: string,
   updatedPropertyData: PropertyUpdate
 ): Promise<ServerActionResponse<Property>> {
-  const cookieStore = cookies();
-  const supabase = createClient(cookieStore);
+  const supabase = createClient();
 
   if (!propertyId) {
     return { success: false, error: 'Property ID is required for an update.' };
@@ -63,8 +61,7 @@ export async function updatePropertyAction(
  * @returns A response object indicating success or failure.
  */
 export async function deletePropertyAction(propertyId: string): Promise<ServerActionResponse<null>> {
-  const cookieStore = cookies();
-  const supabase = createClient(cookieStore);
+  const supabase = createClient();
 
   if (!propertyId) {
     return { success: false, error: 'Property ID is required for deletion.' };

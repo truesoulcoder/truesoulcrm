@@ -39,12 +39,6 @@ export function Modal({ isOpen, onClose, children, title, className = '' }: Moda
 
   return (
     <dialog ref={modalRef} className={`modal ${className}`}>
-      {/* This style block specifically targets the browser's native backdrop for the dialog */}
-      <style>{`
-        dialog.modal::backdrop {
-          background-color: transparent;
-        }
-      `}</style>
       <div className="modal-box">
         {title && (
           <h3 className="text-lg font-bold mb-4">{title}</h3>
@@ -53,8 +47,8 @@ export function Modal({ isOpen, onClose, children, title, className = '' }: Moda
           {children}
         </div>
       </div>
-      {/* This form is a fallback for backdrop click behavior in older browsers */}
-      <form method="dialog" className="modal-backdrop bg-transparent">
+      {/* Clicking outside the modal box will close it */}
+      <form method="dialog" className="modal-backdrop">
         <button onClick={onClose}>close</button>
       </form>
     </dialog>

@@ -8,168 +8,165 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  type ColumnDef,
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { Mail, Phone } from 'lucide-react';
+import { View } from 'lucide-react';
 import type { Database, Tables } from '@/types/supabase';
 import LeadFormModal from '@/components/leads/LeadFormModal';
-import TableControls from '@/components/layout/TableControls';
+import ColumnSelectorModal from './ColumnSelectorModal';
 
-// Define a type for a single contact object
-type Contact = Tables<'contacts'> | null;
-
-// Define the new, flattened data structure for each property row
-type LeadData = Tables<'properties'> & {
-  Contact1: Contact;
-  Contact2: Contact;
-  Contact3: Contact;
-  MLSAgent: Contact;
+// Create a new type for our view by extending the base property type
+type PropertyWithContacts = Tables<'properties'> & {
+    contact_count: number | null;
+    contact_names: string | null;
+    contact_emails: string | null;
+    contact_phones: string | null;
 };
 
-const columnHelper = createColumnHelper<LeadData>();
+const columnHelper = createColumnHelper<PropertyWithContacts>();
 
-// Helper to render a contact cell
-const ContactCell = ({ contact }: { contact: Contact }) => {
-  if (!contact) return null;
-  return (
-    <div className="flex flex-col gap-1 text-xs">
-      <div className="font-semibold text-sm text-base-content">{contact.name || 'N/A'}</div>
-      <div className="flex items-center gap-2 text-base-content/70">
-        <Mail size={12} />
-        <span>{contact.email || 'No Email'}</span>
-      </div>
-      <div className="flex items-center gap-2 text-base-content/70">
-        <Phone size={12} />
-        <span>{contact.phone || 'No Phone'}</span>
-      </div>
-    </div>
-  );
-};
-
-// Define the new columns based on the mockup
-const columns: ColumnDef<LeadData, any>[] = [
-  columnHelper.accessor('property_address', { id: 'Property Address' }),
-  columnHelper.accessor('status', { id: 'Lead Status' }),
-  columnHelper.accessor('market_region', { id: 'Market Region' }),
-  columnHelper.accessor('assessed_total', { id: 'Assessed Total', cell: info => info.getValue()?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '-' }),
-  columnHelper.accessor('market_value', { id: 'Market Value', cell: info => info.getValue()?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '-' }),
-  columnHelper.accessor('beds', { id: 'Beds' }),
-  columnHelper.accessor('baths', { id: 'Baths' }),
-  columnHelper.accessor('property_type', { id: 'Property Type' }),
-  columnHelper.accessor('square_footage', { id: 'Square Footage' }),
-  columnHelper.accessor('year_built', { id: 'Year Built' }),
-  columnHelper.accessor('lot_size_sqft', { id: 'Lot Size Sq Ft' }),
-  columnHelper.accessor('assessed_year', { id: 'Assessed Year' }),
-  columnHelper.accessor('wholesale_value', { id: 'Wholesale Value', cell: info => info.getValue()?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '-' }),
-  columnHelper.accessor('mls_status', { id: 'MLS Status' }),
-  columnHelper.accessor('mls_days_on_market', { id: 'Days on Market' }),
-  columnHelper.accessor('mls_list_price', { id: 'MLS List Price', cell: info => info.getValue()?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '-' }),
-  columnHelper.accessor('MLSAgent', { id: 'MLS Agent', cell: ({ getValue }) => <ContactCell contact={getValue()} /> }),
-  columnHelper.accessor('Contact1', { id: 'Contact1', cell: ({ getValue }) => <ContactCell contact={getValue()} /> }),
-  columnHelper.accessor('Contact2', { id: 'Contact2', cell: ({ getValue }) => <ContactCell contact={getValue()} /> }),
-  columnHelper.accessor('Contact3', { id: 'Contact3', cell: ({ getValue }) => <ContactCell contact={getValue()} /> }),
+// Define all possible columns for the new view
+const allColumns = [
+  columnHelper.accessor('property_address', {
+    header: 'Property Address',
+    cell: info => <div className="truncate">{info.getValue() || 'N/A'}</div>,
+  }),
+  columnHelper.accessor('property_city', { header: 'City' }),
+  columnHelper.accessor('status', {
+    header: 'Lead Status',
+    cell: info => {
+      const status = info.getValue();
+      const statusClass = {
+        'New Lead': 'badge-info', 'Contacted': 'badge-success', 'Qualified': 'badge-primary',
+        'Unqualified/Disqualified': 'badge-error', 'Closed - Converted/Customer': 'badge-success font-bold',
+      }[status] || 'badge-ghost';
+      return <span className={`badge ${statusClass} text-xs`}>{status}</span>;
+    },
+  }),
+  columnHelper.accessor('contact_count', { header: '# Contacts' }),
+  columnHelper.accessor('contact_names', {
+      header: 'Contact Names',
+      cell: info => <div className="truncate">{info.getValue()}</div>,
+  }),
+  columnHelper.accessor('contact_emails', {
+      header: 'Contact Emails',
+      cell: info => <div className="truncate">{info.getValue()}</div>,
+  }),
+  columnHelper.accessor('beds', { header: 'Beds' }),
+  columnHelper.accessor('baths', { header: 'Baths' }),
+  columnHelper.accessor('square_footage', { header: 'Sq. Ft.' }),
+  columnHelper.accessor('year_built', { header: 'Year Built' }),
+  columnHelper.accessor('market_value', {
+    header: 'Market Value',
+    cell: info => info.getValue()?.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }) || '-',
+  }),
+  columnHelper.accessor('created_at', {
+    header: 'Date Added',
+    cell: info => new Date(info.getValue()).toLocaleDateString(),
+  }),
 ];
 
+
 const OmegaTable = () => {
-  const [leads, setLeads] = useState<LeadData[]>([]);
+  const [leads, setLeads] = useState<PropertyWithContacts[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
-  const [marketRegionFilter, setMarketRegionFilter] = useState('all');
-  const [marketRegions, setMarketRegions] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-    'Beds': false, 'Baths': false, 'Property Type': false,
-    'Square Footage': false, 'Year Built': false, 'Lot Size Sq Ft': false,
-    'Assessed Year': false, 'Wholesale Value': false, 'MLS Status': false,
-    'MLS Agent': false, 'Days on Market': false, 'MLS List Price': false,
+      // Hide the more detailed contact columns by default
+      contact_names: false,
+      contact_emails: false,
+      beds: false,
+      baths: false,
+      square_footage: false,
+      year_built: false,
+      market_value: false,
   });
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState<Tables<'properties'> | null>(null);
+  const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState<PropertyWithContacts | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
-    const { data: properties, error: propertiesError } = await supabase.from('properties').select('*');
-    if (propertiesError) throw propertiesError;
-    if (!properties) return;
-
-    const propertyIds = properties.map(p => p.property_id);
-    const { data: contacts, error: contactsError } = await supabase.from('contacts').select('*').in('property_id', propertyIds);
-    if (contactsError) throw contactsError;
-
-    const contactsByPropertyId = (contacts || []).reduce<Record<string, Tables<'contacts'>[]>>((acc, contact) => {
-      if (!acc[contact.property_id]) acc[contact.property_id] = [];
-      acc[contact.property_id].push(contact);
-      return acc;
-    }, {});
-    
-    const uniqueRegions = [...new Set(properties.map(p => p.market_region).filter(Boolean) as string[])];
-    setMarketRegions(uniqueRegions.sort());
-
-    const flattenedLeads = properties.map(prop => {
-      const relatedContacts = contactsByPropertyId[prop.property_id] || [];
-      const owners = relatedContacts.filter(c => c.role !== 'mls_agent');
-      const agent = relatedContacts.find(c => c.role === 'mls_agent');
-      
-      return {
-        ...prop,
-        Contact1: owners[0] || null,
-        Contact2: owners[1] || null,
-        Contact3: owners[2] || null,
-        MLSAgent: agent || null,
-      };
-    });
-
-    setLeads(flattenedLeads);
-    setIsLoading(false);
+    setError(null);
+    try {
+      // Fetch from the new 'properties_with_contacts' view
+      const { data, error: fetchError } = await supabase.from('properties_with_contacts').select('*').order('created_at', { ascending: false });
+      if (fetchError) throw fetchError;
+      setLeads(data as PropertyWithContacts[] || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch leads.');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const table = useReactTable({
-    data: leads,
-    columns,
-    state: { sorting: [], globalFilter, columnVisibility },
-    onColumnVisibilityChange: setColumnVisibility,
-    onGlobalFilterChange: setGlobalFilter,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 25 } },
-  });
-  
   useEffect(() => {
-    table.getColumn('Market Region')?.setFilterValue(marketRegionFilter === 'all' ? '' : marketRegionFilter);
-  }, [marketRegionFilter, table]);
+    // When the underlying tables change, refetch from the view
+    const channel = supabase.channel('public-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts' }, () => fetchData())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchData]);
 
-  const handleOpenModal = (property: Tables<'properties'> | null) => {
-    if (!property) return;
+  const handleOpenModal = (property: PropertyWithContacts | null = null) => {
     setSelectedProperty(property);
     setIsModalOpen(true);
   };
 
-  return (
-    <div className="p-4 bg-base-100 rounded-lg shadow-xl h-full flex flex-col">
-      <TableControls
-        table={table}
-        globalFilter={globalFilter}
-        setGlobalFilter={setGlobalFilter}
-        marketRegionFilter={marketRegionFilter}
-        setMarketRegionFilter={setMarketRegionFilter}
-        marketRegions={marketRegions}
-      />
+  const table = useReactTable({
+    data: leads,
+    columns: allColumns,
+    state: { sorting, globalFilter, columnVisibility },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
 
-      <div className="overflow-x-auto flex-grow">
-        <table className="table w-full table-zebra table-sm">
+  return (
+    <div className="p-4 bg-base-100 rounded-lg shadow-xl">
+      <div className="flex justify-between items-center mb-4">
+        <input
+          type="text"
+          placeholder="Search leads..."
+          className="input input-bordered w-full max-w-xs"
+          value={globalFilter}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+        />
+        <div className="flex items-center gap-2">
+            <button className="btn btn-ghost" onClick={() => setIsColumnModalOpen(true)}>
+                <View size={16} />
+                Columns
+            </button>
+            <button className="btn btn-primary" onClick={() => handleOpenModal()}>
+              Add Lead
+            </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        {/* Added table-fixed to prevent overflow */}
+        <table className="table w-full table-fixed table-zebra">
           <thead>
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map(header => (
-                  <th key={header.id}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  <th key={header.id} onClick={header.column.getToggleSortingHandler()} className="cursor-pointer select-none">
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? null}
                   </th>
                 ))}
               </tr>
@@ -177,14 +174,14 @@ const OmegaTable = () => {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={columns.length} className="text-center py-10"><span className="loading loading-spinner"></span></td></tr>
+              <tr><td colSpan={allColumns.length} className="text-center py-10"><span className="loading loading-spinner"></span></td></tr>
             ) : table.getRowModel().rows.length === 0 ? (
-              <tr><td colSpan={columns.length} className="text-center py-10">No leads found.</td></tr>
+              <tr><td colSpan={allColumns.length} className="text-center py-10">No leads found.</td></tr>
             ) : (
               table.getRowModel().rows.map(row => (
                 <tr key={row.original.property_id} className="hover" onClick={() => handleOpenModal(row.original)}>
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="py-3 px-2 align-top">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    <td key={cell.id} className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
                   ))}
                 </tr>
               ))
@@ -198,14 +195,22 @@ const OmegaTable = () => {
           Page{' '}<strong>{table.getState().pagination.pageIndex + 1} of {table.getPageCount()}</strong>
         </span>
         <div className="btn-group">
-          <button className="btn btn-sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>«</button>
-          <button className="btn btn-sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>»</button>
+          <button className="btn" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>«</button>
+          <button className="btn" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>»</button>
         </div>
       </div>
 
       {isModalOpen && (
           <LeadFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} property={selectedProperty || undefined} />
       )}
+
+      <ColumnSelectorModal
+        isOpen={isColumnModalOpen}
+        onClose={() => setIsColumnModalOpen(false)}
+        allColumns={table.getAllLeafColumns().map(col => ({ key: col.id, label: typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id }))}
+        currentVisibility={columnVisibility}
+        onSave={setColumnVisibility}
+      />
     </div>
   );
 };
