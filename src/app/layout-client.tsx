@@ -1,5 +1,6 @@
 "use client";
 
+import { HeroUIProvider, ToastProvider } from "@heroui/react";
 import { useEffect } from 'react';
 
 import MainAppShell from '@/components/layout/MainAppShell';
@@ -28,7 +29,11 @@ function ThemeEffectAndAppShell({ children }: { children: React.ReactNode }) {
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     <ActualStatefulThemeProvider>
-      <ThemeEffectAndAppShell>{children}</ThemeEffectAndAppShell>
+      <HeroUIProvider>
+        <ToastProvider>
+          <ThemeEffectAndAppShell>{children}</ThemeEffectAndAppShell>
+        </ToastProvider>
+      </HeroUIProvider>
     </ActualStatefulThemeProvider>
   );
 }

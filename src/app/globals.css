@@ -1,7 +1,6 @@
-@import "tailwindcss";
-@plugin "daisyui" {
-  themes: light --default, dark --prefersdark;
-};
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @keyframes gradient-x {
   0% {

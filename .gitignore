@@ -11,3 +11,4 @@ dealpig-sender-13e3b5ed13ab.json
 memory.json
 src/supabase\migrations\20250607094005_remote_schema.sql
 supabase\migrations\20250607094005_remote_schema.sql
+.bento-box-ui
