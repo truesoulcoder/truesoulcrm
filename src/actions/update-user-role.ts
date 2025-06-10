@@ -11,13 +11,17 @@ export async function updateUserRole(userData: {
   avatar_url?: string | null
 }) {
   // Create admin client with service role key
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
+  }
+
   const supabaseAdmin = await createAdminServerClient()
 
   const { user_id, user_email, user_role, full_name, avatar_url } = userData
 
   // Determine user role
   let newRole = user_role
-  if (user_email === 'SET_USER_ROLE_FUNCTION_SUPER_ADMIN_EMAIL') {
+  if (user_email === process.env.SET_USER_ROLE_FUNCTION_SUPER_ADMIN_EMAIL) {
     newRole = 'superadmin'
   } else if (!newRole) {
     newRole = 'guest'
@@ -34,6 +38,11 @@ export async function updateUserRole(userData: {
     })
 
     if (updateAuthError) {
+      console.error('Auth update error details:', {
+        user_id,
+        newRole,
+        error: updateAuthError
+      })
       throw new Error(`Auth update failed: ${updateAuthError.message}`)
     }
 
