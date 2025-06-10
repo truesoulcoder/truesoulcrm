@@ -53,7 +53,8 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   return (
     <nav className="navbar bg-base-100 shadow-sm sticky top-0 z-20">
       <div className="navbar-start">
-        <button onClick={onMenuClick} className="btn btn-ghost btn-circle sm:hidden">
+        {/* This button is for mobile/tablet and is hidden on large screens */}
+        <button onClick={onMenuClick} className="btn btn-ghost btn-circle lg:hidden">
           <Menu size={24} />
         </button>
       </div>

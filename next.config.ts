@@ -15,10 +15,13 @@ const nextConfig = {
     },
   },
   images: {
-    domains: [
-      'localhost:3000',
-    ],
     remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/**',
+      },
       {
         protocol: 'https',
         hostname: 'lefvtgqockzqkasylzwb.supabase.co',

@@ -1,7 +1,7 @@
 // src/components/maps/StreetViewMap.tsx
 'use client';
 
-import { GoogleMap, StreetViewPanorama, MarkerF } from '@react-google-maps/api';
+import { GoogleMap, StreetViewPanorama, AdvancedMarker } from '@react-google-maps/api';
 import { MapPin, AlertTriangle, Loader2, Eye, Map as MapIcon } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGoogleMapsApi } from './GoogleMapsLoader';
@@ -45,12 +45,24 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
 
   const checkStreetView = useCallback((latLng: google.maps.LatLngLiteral) => {
     streetViewServiceRef.current?.getPanorama({ location: latLng, radius: 50 }, (data, status) => {
-      setHasStreetView(status === 'OK');
+      if (status === 'OK') {
+        setHasStreetView(true);
+        setShowStreetView(true);
+      } else {
+        setHasStreetView(false);
+        setShowStreetView(false);
+      }
     });
   }, []);
 
   const geocodeAddress = useCallback(async (addr: string) => {
-    if (!geocoderRef.current) return;
+    if (!geocoderRef.current || !addr.trim()) {
+        setIsLoading(false);
+        setStatusMessage('No address provided.');
+        setPosition(null);
+        setHasStreetView(false);
+        return;
+    };
     setIsLoading(true);
     setStatusMessage('Finding location...');
     try {
@@ -66,6 +78,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
         setHasStreetView(false);
       }
     } catch (error) {
+      console.error(`Geocoding error for address "${addr}":`, error);
       setStatusMessage('Error finding location.');
       setPosition(null);
       setHasStreetView(false);
@@ -75,15 +88,8 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
   }, [checkStreetView]);
 
   useEffect(() => {
-    if (address) {
-      const handler = setTimeout(() => geocodeAddress(address), 500);
-      return () => clearTimeout(handler);
-    } else {
-      setIsLoading(false);
-      setStatusMessage('No address provided.');
-      setPosition(null);
-      setHasStreetView(false);
-    }
+    const handler = setTimeout(() => geocodeAddress(address), 500);
+    return () => clearTimeout(handler);
   }, [address, geocodeAddress]);
 
   if (isLoading) {
@@ -100,7 +106,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
     disableDefaultUI: true,
     gestureHandling: 'cooperative',
   };
-
+  
   const panoramaOptions = {
     position,
     pov: { heading: 34, pitch: 10 },
@@ -112,28 +118,34 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
 
   return (
     <div style={containerStyle}>
-      {hasStreetView && (
-        <button
-          onClick={() => setShowStreetView(prev => !prev)}
-          className="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-10 bg-base-100/70 hover:bg-base-100"
-          title={showStreetView ? "Switch to Map View" : "Switch to Street View"}
-        >
-          {showStreetView ? <MapIcon size={18} /> : <Eye size={18} />}
-        </button>
-      )}
+      <GoogleMap
+        mapContainerStyle={{ width: '100%', height: '100%' }}
+        {...mapOptions}
+        mapId="3fd7ad01f44109d8a07fe0b1" // Pass the Map ID to the GoogleMap component
+      >
+        {hasStreetView && (
+          <button
+            onClick={() => setShowStreetView(prev => !prev)}
+            className="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-10 bg-base-100/70 hover:bg-base-100"
+            title={showStreetView ? "Switch to Map View" : "Switch to Street View"}
+          >
+            {showStreetView ? <MapIcon size={18} /> : <Eye size={18} />}
+          </button>
+        )}
 
-      {hasStreetView && showStreetView ? (
-        <StreetViewPanorama options={panoramaOptions} />
-      ) : (
-        <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} {...mapOptions}>
-          <MarkerF position={position} />
-          {!hasStreetView && (
-            <div className="absolute bottom-2 left-2 bg-base-100/70 p-1.5 rounded text-xs text-base-content">
-              Street View not available for this location.
-            </div>
-          )}
-        </GoogleMap>
-      )}
+        {showStreetView && hasStreetView ? (
+          <StreetViewPanorama options={panoramaOptions} />
+        ) : (
+          // Use the new AdvancedMarker component
+          <AdvancedMarker position={position} />
+        )}
+        
+        {!hasStreetView && (
+          <div className="absolute bottom-2 left-2 bg-base-100/70 p-1.5 rounded text-xs text-base-content">
+            Street View not available for this location.
+          </div>
+        )}
+      </GoogleMap>
     </div>
   );
 };
