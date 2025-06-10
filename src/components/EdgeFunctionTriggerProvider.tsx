@@ -30,7 +30,7 @@ async function triggerSetTrueSoulRole(session: any) {
   };
 
   try {
-    const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-truesoul-role', {
+    const res = await fetch('https://lefvtgqockzqkasylzwb.supabase.co/functions/v1/set-user-role', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
