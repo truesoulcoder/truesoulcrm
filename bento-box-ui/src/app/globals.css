@@ -1,0 +1,153 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  ==========================================
+  HeroUI Custom Theme: night-heroui
+  Converted from DaisyUI "night" theme
+  ==========================================
+  This section defines all the CSS variables for your custom HeroUI theme.
+  It is typically activated by adding data-theme="night-heroui" to your HTML element,
+  or by applying the .hu-theme-night-heroui class.
+*/
+[data-theme="night-heroui"] {
+  color-scheme: dark;
+  
+  /* Base Colors */
+  --hu-color-gray-100: oklch(20.7682% 0.039824 265.754874);
+  --hu-color-gray-200: oklch(19.3144% 0.037037 265.754874);
+  --hu-color-gray-300: oklch(17.8606% 0.034249 265.754874);
+  --hu-color-bg-base: oklch(20.7682% 0.039824 265.754874);
+  --hu-color-bg-alt: oklch(19.3144% 0.037037 265.754874);
+  
+  /* Text Colors */
+  --hu-color-text-base: oklch(84.1536% 0.007965 265.754874);
+  
+  /* Primary Colors */
+  --hu-color-primary: oklch(75.3513% 0.138989 232.66148);
+  --hu-color-primary-content: oklch(15.0703% 0.027798 232.66148);
+  
+  /* Apply to root and body */
+  background-color: var(--hu-color-bg-base);
+  color: var(--hu-color-text-base);
+}
+
+html[data-theme="night-heroui"],
+html.dark {
+  background-color: var(--hu-color-bg-base);
+}
+
+body {
+  color: var(--hu-color-text-base);
+  background-color: var(--hu-color-bg-base);
+  transition: background-color 0.3s ease;
+}
+
+/*
+  ==========================================
+  General Global Styles (Your existing styles)
+  ==========================================
+  These styles apply globally regardless of the HeroUI theme.
+*/
+
+/* Default (light) theme fallback and transition for properties not covered by HeroUI vars */
+:root {
+  transition: background-color 0.3s ease;
+}
+
+/* Fallback/Override for .dark class if not using HeroUI data-theme everywhere */
+/* If you are exclusively using data-theme="night-heroui", you might not need this .dark block */
+.dark {
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 17, 24, 39;
+  color-scheme: dark;
+}
+
+/* Ensure dark mode applies to html element (good practice for scrollbars etc.) */
+/* This will effectively be the same as [data-theme="night-heroui"] if that's active */
+html.dark {
+  background-color: rgb(var(--background-rgb));
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Helvetica', Arial, sans-serif;
+  min-height: 100vh; /* Ensure body takes at least full viewport height */
+  background-attachment: fixed;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+/* Larger grab area for resize handles */
+.react-grid-item > .react-resizable-handle {
+  padding: 8px !important;  /* Creates larger invisible click area */
+  right: -4px !important;   /* Extends beyond corner slightly */
+  bottom: -4px !important;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  width: 6px !important;    /* Keep visual indicator small */
+  height: 6px !important;
+  border-right: 2px solid rgba(0,0,0,0.6) !important;
+  border-bottom: 2px solid rgba(0,0,0,0.6) !important;
+}
+
+/* Dark mode support */
+.dark .react-grid-item > .react-resizable-handle::after,
+[data-theme="night-heroui"] .react-grid-item > .react-resizable-handle::after {
+  border-right-color: rgba(255,255,255,0.8) !important;
+  border-bottom-color: rgba(255,255,255,0.8) !important;
+}
+
+/* Animata-style glowing card */
+.dark .react-grid-item > .card,
+[data-theme="night-heroui"] .react-grid-item > .card {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    0 0 15px 5px rgba(100, 150, 255, 0.4),
+    0 4px 6px -1px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .react-grid-item > .card::before,
+[data-theme="night-heroui"] .react-grid-item > .card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    45deg,
+    rgba(100, 150, 255, 0.2) 0%,
+    rgba(100, 180, 255, 0.3) 50%,
+    rgba(100, 150, 255, 0.2) 100%
+  );
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.dark .react-grid-item > .card:hover::before,
+[data-theme="night-heroui"] .react-grid-item > .card:hover::before {
+  opacity: 1;
+}
+
+/* Stronger glow on hover */
+.dark .react-grid-item > .card:hover,
+[data-theme="night-heroui"] .react-grid-item > .card:hover {
+  box-shadow: 
+    0 0 20px 8px rgba(100, 150, 255, 0.4),
+    0 6px 8px -1px rgba(0, 0, 0, 0.5),
+    0 4px 6px -1px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Tailwind utilities layer */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
