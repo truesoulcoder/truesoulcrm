@@ -64,15 +64,16 @@ export const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
   React.useEffect(() => {
     if (isMounted) {
       try {
-        const savedLayouts = JSON.parse(localStorage.getItem("dashboard-layouts") || "{}");
-        // Create a complete layout object by taking defaults and overwriting with saved values
-        const completeLayouts = { ...defaultLayouts };
-        Object.keys(completeLayouts).forEach((breakpoint) => {
-          if (savedLayouts[breakpoint]) {
-            completeLayouts[breakpoint as keyof typeof completeLayouts] = savedLayouts[breakpoint];
-          }
-        });
-        setLayouts(completeLayouts);
+        const savedLayouts = JSON.parse(localStorage.getItem("dashboard-layouts") || "null");
+        if (savedLayouts) {
+          const completeLayouts = { ...defaultLayouts };
+          Object.keys(completeLayouts).forEach((breakpoint) => {
+            if (savedLayouts[breakpoint]) {
+              completeLayouts[breakpoint as keyof typeof completeLayouts] = savedLayouts[breakpoint];
+            }
+          });
+          setLayouts(completeLayouts);
+        }
       } catch (e) {
         console.error("Could not parse dashboard layouts from localStorage", e);
       }
@@ -91,14 +92,14 @@ export const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
       saveToLS("dashboard-layouts", allLayouts);
     }
   };
-
+  
   const resetLayout = () => {
     setLayouts(defaultLayouts);
     saveToLS("dashboard-layouts", defaultLayouts);
   };
   
   if (!isMounted) {
-    return null; // Return nothing on the server to prevent hydration errors
+    return null;
   }
 
   return (
