@@ -1,6 +1,6 @@
 "use client";
 
-import { HeroUIProvider, ToastProvider } from "@heroui/react";
+import { HeroUIProvider } from "@heroui/react";
 import { usePathname } from "next/navigation";
 import { useEffect } from 'react';
 import MainAppShell from '@/components/layout/MainAppShell';

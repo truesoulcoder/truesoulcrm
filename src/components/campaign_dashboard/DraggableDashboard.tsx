@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Icon } from "@iconify/react";
-import { Card, CardHeader, CardBody, Button, Tooltip } from "@heroui/react";
+import { Card, CardHeader, CardBody, Button } from "@heroui/react";
 import { Responsive, WidthProvider } from "react-grid-layout";
 import { CampaignChart } from "./CampaignChart";
 import { CampaignConsole } from "./CampaignConsole";

@@ -2,9 +2,9 @@
 'use client';
 
 import { createContext, useContext } from 'react';
-import { useTheme, type Theme, type ThemeName } from '@/hooks/useTheme';
+import { useTheme } from '@/hooks/useTheme';
 
-interface ThemeContextType extends ReturnType<typeof useTheme> {}
+type ThemeContextType = ReturnType<typeof useTheme>
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
