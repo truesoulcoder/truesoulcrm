@@ -1,10 +1,11 @@
+// src/app/layout.tsx
 import { Inter } from 'next/font/google';
 import { UserProvider } from '@/contexts/UserContext';
 import ClientLayout from './layout-client';
 import type { Metadata } from 'next';
 import './globals.css';
 import EdgeFunctionTriggerProvider from '@/components/EdgeFunctionTriggerProvider';
-import RequireAuth from '@/components/RequireAuth'; // Import the component
+import RequireAuth from '@/components/RequireAuth';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -26,11 +27,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html data-theme="dark" lang="en" suppressHydrationWarning>
+    // REMOVED data-theme="dark" attribute
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <EdgeFunctionTriggerProvider />
         <UserProvider>
-          {/* This component will now manage routing based on auth state */}
           <RequireAuth>
             <ClientLayout>{children}</ClientLayout>
           </RequireAuth>

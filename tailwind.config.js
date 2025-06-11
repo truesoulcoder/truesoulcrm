@@ -1,27 +1,43 @@
+// tailwind.config.js
 import { heroui } from "@heroui/react";
-import { themes } from "./src/themes"; // Importing our new custom themes
 
 /** @type {import('tailwindcss').Config} */
-const config = {
+module.exports = {
   content: [
-    // Paths for Next.js App Router
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-    // Path to the HeroUI theme files
-    "./node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
+    "./node_modules/@heroui/react/dist/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {},
   },
   darkMode: "class",
   plugins: [
+    // Plugin for @heroui/react components
     heroui({
       themes: {
-        ...themes, // Spread in all our custom themes
-      },
+        light: {
+          extend: 'light',
+          colors: {
+            background: "#ffffff",
+            foreground: "#1f2937",
+            primary: { DEFAULT: "#570df8", foreground: "#ffffff" },
+            secondary: { DEFAULT: "#f000b8", foreground: "#ffffff" },
+            success: { DEFAULT: "#36d399", foreground: "#1f2937" },
+            danger: { DEFAULT: "#f87272", foreground: "#1f2937" },
+          },
+        },
+        dark: {
+          extend: 'dark',
+          colors: {
+            background: "#2a323c",
+            foreground: "#a6adbb",
+            primary: { DEFAULT: "#793ef9", foreground: "#ffffff" },
+            secondary: { DEFAULT: "#f000b8", foreground: "#ffffff" },
+            success: { DEFAULT: "#36d399", foreground: "#1f2937" },
+            danger: { DEFAULT: "#f87272", foreground: "#1f2937" },
+          },
+        },
+      }
     }),
   ],
 };
-
-export default config;
