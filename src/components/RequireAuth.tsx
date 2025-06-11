@@ -8,7 +8,7 @@ const publicPaths = ['/'];
 
 const AuthLoading = () => (
   <div className="flex items-center justify-center h-screen text-center">
-    <p className="text-lg">//Loading application...////</p>
+    <p className="text-lg">Loading Application...</p>
     <span className="loading loading-spinner loading-lg ml-2"></span>
   </div>
 );

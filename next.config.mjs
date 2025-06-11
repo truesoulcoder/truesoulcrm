@@ -1,10 +1,10 @@
-// Modern Next.js config, ESM style
 import path from 'path';
-import { fileURLToPath } from 'url';
-// import webpack from 'webpack'; // <-- REMOVED THIS LINE
+// We no longer need fileURLToPath or to define __dirname
+// import { fileURLToPath } from 'url';
+import webpack from 'webpack';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
 
 const nextConfig = {
   reactStrictMode: false,
@@ -13,7 +13,7 @@ const nextConfig = {
       allowedOrigins: ['localhost:3000'],
     },
   },
-  transpilePackages: ['@supabase/supabase-js', '@supabase/realtime-js'],
+  transpilePackages: ['@supabase/supabase-js', '@supabase/realtime-js', '@heroui/react'],
   images: {
     remotePatterns: [
       {
@@ -36,9 +36,9 @@ const nextConfig = {
       },
     ],
   },
-  // Get the webpack object from the function's arguments
   webpack: (config, { isServer, dev, webpack }) => {
     if (isServer) {
+      // ... server-side webpack config remains correct ...
       const existingExternals = Array.isArray(config.externals) ? config.externals : [];
       config.externals = existingExternals.filter(
         (ext) => typeof ext !== 'object' || (!ext.hasOwnProperty('puppeteer-core') && !ext.hasOwnProperty('@sparticuz/chromium'))
@@ -51,7 +51,7 @@ const nextConfig = {
           return true;
         });
       }
-      config.resolve.fallback = {
+       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
         net: false,
@@ -71,12 +71,11 @@ const nextConfig = {
     }
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': path.resolve(__dirname, 'src'),
+      // FIX: Use process.cwd() to robustly get the project root
+      '@': path.join(process.cwd(), 'src'),
     };
 
-    // Add IgnorePlugin for fsevents
     config.plugins = config.plugins || [];
-    // Use the webpack object provided by Next.js
     config.plugins.push(new webpack.IgnorePlugin({ resourceRegExp: /^fsevents$/ }));
     config.plugins.push(new webpack.IgnorePlugin({ resourceRegExp: /nunjucks\/src\/node-loaders\.js$/ }));
 
