@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "@heroui/react";
 import { DraggableDashboard } from "./DraggableDashboard";
+import { ThemeToggleButton } from "@/components/ui/ThemeToggleButton";
 
 export const CampaignDashboard: React.FC = () => {
   const [isRunning, setIsRunning] = React.useState(false);
@@ -37,21 +38,22 @@ export const CampaignDashboard: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Campaign Dashboard</h1>
           <p className="text-small text-default-500">Manage and monitor your email campaigns</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Tooltip content={isEditMode ? "Exit Layout Edit Mode" : "Customize Dashboard Layout"}>
+        <div className="flex items-center gap-2">
+          <ThemeToggleButton />
+          <Tooltip content={isEditMode ? "Save Layout" : "Edit Layout"}>
             <Button 
               variant="flat" 
+              isIconOnly
               color={isEditMode ? "primary" : "default"}
-              startContent={<Icon icon={isEditMode ? "lucide:check" : "lucide:layout"} />}
               onPress={() => setIsEditMode(!isEditMode)}
             >
-              {isEditMode ? "Save Layout" : "Edit Layout"}
+             <Icon icon={isEditMode ? "lucide:check" : "lucide:layout"} />
             </Button>
           </Tooltip>
           
@@ -70,8 +72,6 @@ export const CampaignDashboard: React.FC = () => {
             >
               <DropdownItem key="Summer Promotion">Summer Promotion</DropdownItem>
               <DropdownItem key="New Product Launch">New Product Launch</DropdownItem>
-              <DropdownItem key="Customer Feedback">Customer Feedback</DropdownItem>
-              <DropdownItem key="Weekly Newsletter">Weekly Newsletter</DropdownItem>
             </DropdownMenu>
           </Dropdown>
           
@@ -83,36 +83,8 @@ export const CampaignDashboard: React.FC = () => {
             >
               Start Campaign
             </Button>
-          ) : isPaused ? (
-            <div className="flex gap-2">
-              <Button 
-                color="primary" 
-                variant="flat"
-                startContent={<Icon icon="lucide:play" />}
-                onPress={handleResume}
-              >
-                Resume
-              </Button>
-              <Button 
-                color="danger" 
-                variant="flat"
-                startContent={<Icon icon="lucide:square" />}
-                onPress={handleStop}
-              >
-                Stop
-              </Button>
-            </div>
           ) : (
-            <div className="flex gap-2">
-              <Button 
-                color="warning" 
-                variant="flat"
-                startContent={<Icon icon="lucide:pause" />}
-                onPress={handlePause}
-              >
-                Pause
-              </Button>
-              <Button 
+             <Button 
                 color="danger" 
                 variant="flat"
                 startContent={<Icon icon="lucide:square" />}
@@ -120,7 +92,6 @@ export const CampaignDashboard: React.FC = () => {
               >
                 Stop
               </Button>
-            </div>
           )}
         </div>
       </div>

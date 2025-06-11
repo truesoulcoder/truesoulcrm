@@ -27,7 +27,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // REMOVED data-theme="dark" attribute
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <EdgeFunctionTriggerProvider />
