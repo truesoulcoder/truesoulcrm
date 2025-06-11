@@ -1,3 +1,4 @@
+// src/next.config.mjs
 import path from 'path';
 
 const nextConfig = {
@@ -7,7 +8,8 @@ const nextConfig = {
       allowedOrigins: ['localhost:3000'],
     },
   },
-  transpilePackages: ['@supabase/supabase-js', '@supabase/realtime-js', '@heroui/react'],
+  // FIX: Add the other @heroui packages to be transpiled
+  transpilePackages: ['@supabase/supabase-js', '@supabase/realtime-js', '@heroui/react', '@heroui/system', '@heroui/theme'],
   images: {
     remotePatterns: [
       {
