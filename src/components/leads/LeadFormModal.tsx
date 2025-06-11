@@ -2,23 +2,28 @@
 
 import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { X, MapPin } from 'lucide-react'; // Keep X for close, MapPin for title
+import { MapPin } from 'lucide-react'; // X for close can be handled by HeroUI ModalHeader
 import StreetViewMap from '@/components/maps/StreetViewMap';
 import { updatePropertyAction, deletePropertyAction } from '@/app/crm/actions';
 import { type Database, Tables, Enums } from '@/types/supabase';
-import { Modal } from '@/components/ui/modal'; // This is the custom Modal wrapper
+// import { Modal } from '@/components/ui/modal'; // Removed custom Modal wrapper
 import { formatAddress } from '@/utils/address';
 import { 
     Button, 
     Spinner, 
-    Input as HeroInput, // Renamed to avoid conflict with HTMLInputElement if any
+    Input as HeroInput, 
     Select as HeroSelect, 
     SelectItem, 
     Textarea as HeroTextarea,
     Accordion,
     AccordionItem,
-    // Card, // If needed for map container, but div with Tailwind is also fine
+    Modal as HeroModal, // Imported HeroUI Modal
+    ModalContent,
+    ModalHeader,
+    ModalBody,
+    ModalFooter,
 } from '@heroui/react';
+import { Icon } from '@iconify/react'; // For icons in header if needed
 
 // Define shorter types
 type Property = Tables<'properties'>;
@@ -168,111 +173,121 @@ const LeadFormModal = ({ property, isOpen, onClose }: LeadFormModalProps) => {
   const fullAddressForMap = property ? formatAddress(property) : '';
 
   return (
-    <>
-      {/* Inline style tag removed as requested */}
-      <Modal
-          isOpen={isOpen}
-          onClose={onClose}
-          backdrop="transparent" // Explicitly set backdrop to transparent
-          // The className "no-backdrop" should be handled by the Modal component itself or its configuration
-          // For now, assuming `Modal` from `ui/modal` might have a prop for this or handles it.
-          className="w-full max-w-4xl h-[90vh] overflow-hidden" // Adjusted max-width for better layout
-      >
-          <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="font-semibold text-lg flex items-center gap-2 text-gray-800 dark:text-white">
-                  <MapPin size={20} className="text-primary-500" />
-                  Lead Details
-              </h3>
-              <Button variant="light" isIconOnly onClick={onClose} aria-label="Close modal" size="sm">
-                  <X size={20} />
-              </Button>
-          </div>
+    <HeroModal 
+        isOpen={isOpen} 
+        onOpenChange={(open) => !open && onClose()} // Call onClose when modal is closed
+        size="4xl" 
+        backdrop="opaque" // Using opaque as per instructions, was transparent
+        scrollBehavior="inside"
+        // className="h-[90vh]" // HeroUI Modal might have specific ways to set height, or rely on content
+    >
+      <ModalContent className="h-[90vh] flex flex-col"> {/* Added flex flex-col for footer placement */}
+        {(modalOnClose) => ( // modalOnClose is provided by ModalContent for default close button
+          <>
+            <ModalHeader className="flex justify-between items-center">
+                <h3 className="font-semibold text-lg flex items-center gap-2">
+                    <Icon icon="lucide:map-pin" className="text-primary h-5 w-5" /> {/* Using Iconify */}
+                    Lead Details
+                </h3>
+                {/* Standard close button is often part of ModalHeader or handled by ModalContent by default.
+                    If a custom one is needed:
+                <Button isIconOnly variant="light" onPress={modalOnClose} size="sm">
+                    <Icon icon="lucide:x" className="h-5 w-5" />
+                </Button>
+                */}
+            </ModalHeader>
 
-          {isLoading || (!property && isOpen) ? ( // Show spinner if loading or if it's a new lead form still initializing
-              <div className="flex items-center justify-center h-full p-8"><Spinner size="lg" /></div>
-          ) : (
-          <form onSubmit={handleSubmit} id="lead-update-form" className="h-[calc(100%-130px)] flex flex-col"> {/* Adjusted height for header and footer */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-grow min-h-0 p-4 overflow-y-auto">
-                  {/* --- Left Column (Map) --- */}
-                  <div className="h-full bg-gray-100 dark:bg-gray-800 rounded-md overflow-hidden min-h-[300px] lg:min-h-0 shadow-sm">
-                      {property && <StreetViewMap address={fullAddressForMap} />}
-                  </div>
+            {isLoading || (!property && isOpen) ? (
+                <ModalBody className="flex items-center justify-center"> {/* Ensure ModalBody takes up space */}
+                    <Spinner size="lg" />
+                </ModalBody>
+            ) : (
+            <form onSubmit={handleSubmit} id="lead-update-form" className="flex flex-col flex-grow min-h-0"> {/* Form wraps body and footer */}
+                <ModalBody className="grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto"> {/* Removed p-4, ModalBody has padding */}
+                    {/* --- Left Column (Map) --- */}
+                    <div className="h-full bg-gray-100 dark:bg-gray-800 rounded-md overflow-hidden min-h-[300px] lg:min-h-0 shadow-sm">
+                        {property && <StreetViewMap address={fullAddressForMap} />}
+                    </div>
 
-                  {/* --- Right Column (Details) --- */}
-                  <div className="space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin"> {/* Added scrollbar styling */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3">
-                          <HeroSelect
-                              label="Status"
-                              name="status"
-                              value={formData.status}
-                              onValueChange={handleSelectChange} // HeroUI Select might use onValueChange
-                              size="sm"
-                          >
-                              {leadStatusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                          </HeroSelect>
-                          <FormInput label="Appraised Value" name="market_value" value={formData.market_value} onChange={handlePropertyInputChange} type="number" />
-                      </div>
-                      <FormInput label="Street Address" name="property_address" value={formData.property_address} onChange={handlePropertyInputChange} />
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-3">
-                          <FormInput label="City" name="property_city" value={formData.property_city} onChange={handlePropertyInputChange} />
-                          <FormInput label="State" name="property_state" value={formData.property_state} onChange={handlePropertyInputChange} />
-                          <FormInput label="Zip" name="property_postal_code" value={formData.property_postal_code} onChange={handlePropertyInputChange} />
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-3">
-                          <FormInput label="Beds" name="beds" value={formData.beds} onChange={handlePropertyInputChange} type="number" />
-                          <FormInput label="Baths" name="baths" value={formData.baths} onChange={handlePropertyInputChange} type="number" />
-                          <FormInput label="SQ FT" name="square_footage" value={formData.square_footage} onChange={handlePropertyInputChange} type="number" />
-                      </div>
+                    {/* --- Right Column (Details) --- */}
+                    <div className="space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+                            <HeroSelect
+                                label="Status"
+                                name="status"
+                                selectedKeys={formData.status ? [formData.status] : []} // HeroSelect expects an iterable
+                                onSelectionChange={(keys) => handleSelectChange(Array.from(keys)[0] as LeadStatus)}
+                                size="sm"
+                                labelPlacement="outside" // As per original OmegaTable example
+                            >
+                                {leadStatusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                            </HeroSelect>
+                            <FormInput label="Appraised Value" name="market_value" value={formData.market_value} onChange={handlePropertyInputChange} type="number" labelPlacement="outside" />
+                        </div>
+                        <FormInput label="Street Address" name="property_address" value={formData.property_address} onChange={handlePropertyInputChange} labelPlacement="outside" />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-3">
+                            <FormInput label="City" name="property_city" value={formData.property_city} onChange={handlePropertyInputChange} labelPlacement="outside" />
+                            <FormInput label="State" name="property_state" value={formData.property_state} onChange={handlePropertyInputChange} labelPlacement="outside" />
+                            <FormInput label="Zip" name="property_postal_code" value={formData.property_postal_code} onChange={handlePropertyInputChange} labelPlacement="outside" />
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-3">
+                            <FormInput label="Beds" name="beds" value={formData.beds} onChange={handlePropertyInputChange} type="number" labelPlacement="outside" />
+                            <FormInput label="Baths" name="baths" value={formData.baths} onChange={handlePropertyInputChange} type="number" labelPlacement="outside" />
+                            <FormInput label="SQ FT" name="square_footage" value={formData.square_footage} onChange={handlePropertyInputChange} type="number" labelPlacement="outside" />
+                        </div>
 
-                      <div className="pt-3">
-                          <h4 className="font-semibold text-sm mb-1 text-gray-700 dark:text-gray-300">CONTACTS</h4>
-                          {formData.contacts && formData.contacts.length > 0 ? (
-                            <Accordion type="single" collapsible className="w-full space-y-1">
-                                {(formData.contacts).map((contact: Contact, index: number) => (
-                                    <AccordionItem key={contact.contact_id || `new-${index}`} value={contact.contact_id || `new-${index}`}>
-                                        <Accordion.Trigger className="text-sm font-medium w-full text-left p-2 bg-gray-100 dark:bg-gray-800 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                                            {contact.name || `Contact ${index + 1}`}
-                                        </Accordion.Trigger>
-                                        <Accordion.Content className="p-2 pt-1 bg-white dark:bg-gray-800/50 rounded-b-md">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 mt-1">
-                                                <FormInput label="Full Name" name="name" value={contact.name} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} />
-                                                <FormInput label="Phone" name="phone" value={contact.phone} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} type="tel" />
-                                            </div>
-                                            <FormInput label="Email" name="email" value={contact.email} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} type="email" className="mt-2"/>
-                                        </Accordion.Content>
-                                    </AccordionItem>
-                                ))}
-                            </Accordion>
-                          ) : (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">No contacts found for this property.</p>
-                          )}
-                      </div>
-                      
-                      <HeroTextarea
-                          label="Notes"
-                          name="notes"
-                          value={formData.notes}
-                          onChange={handlePropertyInputChange}
-                          className="w-full min-h-[80px]" // Assuming HeroTextarea has similar sizing
-                          size="sm"
-                      />
-                  </div>
-              </div>
+                        <div className="pt-3">
+                            <h4 className="font-semibold text-sm mb-1 text-gray-700 dark:text-gray-300">CONTACTS</h4>
+                            {formData.contacts && formData.contacts.length > 0 ? (
+                              <Accordion selectionMode="multiple" variant="splitted" className="w-full space-y-1">
+                                  {(formData.contacts).map((contact: Contact, index: number) => (
+                                      <AccordionItem 
+                                        key={contact.contact_id || `new-${index}`} 
+                                        // @ts-ignore // title might expect string, but node is fine for HeroUI
+                                        title={contact.name || `Contact ${index + 1}`}
+                                        // className="text-sm font-medium" // Apply styling to trigger if needed
+                                      >
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 mt-1">
+                                              <FormInput label="Full Name" name="name" value={contact.name} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} labelPlacement="outside" />
+                                              <FormInput label="Phone" name="phone" value={contact.phone} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} type="tel" labelPlacement="outside" />
+                                          </div>
+                                          <FormInput label="Email" name="email" value={contact.email} onChange={(e:ChangeEvent<HTMLInputElement>) => handleContactInputChange(e, index)} type="email" className="mt-2" labelPlacement="outside"/>
+                                      </AccordionItem>
+                                  ))}
+                              </Accordion>
+                            ) : (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">No contacts found for this property.</p>
+                            )}
+                        </div>
+                        
+                        <HeroTextarea
+                            label="Notes"
+                            name="notes"
+                            value={formData.notes}
+                            onChange={handlePropertyInputChange}
+                            className="w-full min-h-[80px]"
+                            size="sm"
+                            labelPlacement="outside"
+                        />
+                    </div>
+                </ModalBody>
+                
+                {error && <p className="text-danger text-sm px-6 py-2 text-center">{error}</p>}
 
-              {error && <p className="text-danger-500 text-sm p-4 text-center">{error}</p>}
-
-              <div className="flex justify-between items-center p-4 border-t border-gray-200 dark:border-gray-700">
-                  <Button color="danger" variant="outline" onClick={handleDelete} isLoading={isDeleting} disabled={isDeleting || !property}>
-                      {isDeleting ? 'Deleting...' : 'Delete Lead'}
-                  </Button>
-                  <Button color="primary" type="submit" isLoading={isSaving} disabled={isSaving || !property}>
-                      {isSaving ? 'Updating...' : 'Update Lead'}
-                  </Button>
-              </div>
-          </form>
-          )}
-      </Modal>
-    </>
+                <ModalFooter>
+                    <Button color="danger" variant="light" onPress={handleDelete} isLoading={isDeleting} disabled={isDeleting || !property}>
+                        {isDeleting ? 'Deleting...' : 'Delete Lead'}
+                    </Button>
+                    <Button color="primary" type="submit" form="lead-update-form" isLoading={isSaving} disabled={isSaving || !property}>
+                        {isSaving ? 'Updating...' : 'Update Lead'}
+                    </Button>
+                </ModalFooter>
+            </form>
+            )}
+          </>
+        )}
+      </ModalContent>
+    </HeroModal>
   );
 };
 

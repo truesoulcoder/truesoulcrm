@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@/components/ui/modal'; // Custom Modal wrapper
-import { Button, Checkbox } from '@heroui/react'; // HeroUI components
+// import { Modal } from '@/components/ui/modal'; // Removed custom Modal wrapper
+import { 
+    Button, 
+    Checkbox,
+    Modal as HeroModal,
+    ModalContent,
+    ModalHeader,
+    ModalBody,
+    ModalFooter,
+} from '@heroui/react'; // HeroUI components
 
 interface ColumnSelectorModalProps {
   isOpen: boolean;
@@ -42,42 +50,43 @@ const ColumnSelectorModal: React.FC<ColumnSelectorModalProps> = ({
 
   // The Modal component from @/components/ui/modal now needs to provide ModalHeader, ModalBody, ModalFooter
   // or allow content to be structured accordingly.
-  // For this refactor, we assume Modal can take children and we structure them.
-  // The title prop of Modal is used.
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} title="Select Columns to Display">
-      {/* ModalBody equivalent */}
-      <div className="p-4 sm:p-6"> {/* Added padding assuming ModalBody would have it */}
-        <div className="space-y-3"> {/* Adjusted spacing */}
-          {allColumns.map(col => (
-            <div key={col.key} className="flex items-center">
-              <Checkbox
-                id={`col-checkbox-${col.key}`}
-                isSelected={tempVisibility[col.key] ?? false}
-                onValueChange={(checked) => handleCheckboxChange(col.key, checked)} // HeroUI Checkbox might use onValueChange
-                color="primary" // Assuming HeroUI Checkbox takes a color prop
-              >
-                {/* HeroUI Checkbox might take children as label, or have a label prop */}
-                {/* For now, using a separate label element for compatibility */}
-              </Checkbox>
-              <label htmlFor={`col-checkbox-${col.key}`} className="ml-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
-                {col.label}
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-      
-      {/* ModalFooter equivalent */}
-      <div className="flex justify-end items-center gap-3 p-4 border-t border-gray-200 dark:border-gray-700">
-        <Button variant="outline" onClick={handleCancel}> {/* Changed ghost to outline for better visibility */}
-          Cancel
-        </Button>
-        <Button color="primary" onClick={handleSave}>
-          Save
-        </Button>
-      </div>
-    </Modal>
+    <HeroModal 
+        isOpen={isOpen} 
+        onOpenChange={(open) => !open && handleCancel()}
+        backdrop="opaque" // Consistent with LeadFormModal, or 'blur' if preferred
+    >
+      <ModalContent>
+        {(modalOnClose) => ( // modalOnClose can be used for a default close button if needed
+          <>
+            <ModalHeader>Select Columns to Display</ModalHeader>
+            <ModalBody>
+              <div className="space-y-3">
+                {allColumns.map(col => (
+                  <Checkbox
+                    key={col.key}
+                    isSelected={tempVisibility[col.key] ?? false}
+                    onValueChange={(checked) => handleCheckboxChange(col.key, checked)}
+                    color="primary"
+                    size="sm" // Consistent sizing
+                  >
+                    {col.label}
+                  </Checkbox>
+                ))}
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="light" onPress={handleCancel}> {/* Using light variant for cancel */}
+                Cancel
+              </Button>
+              <Button color="primary" onPress={handleSave}>
+                Save
+              </Button>
+            </ModalFooter>
+          </>
+        )}
+      </ModalContent>
+    </HeroModal>
   );
 };
 

@@ -1,36 +1,77 @@
+// src/components/campaign_dashboard/email-selector.tsx
 import React from "react";
 import { Icon } from "@iconify/react";
-import { Checkbox, Input, Button, ScrollShadow } from "@heroui/react";
+import { Checkbox, Input, Button, ScrollShadow, Spinner } from "@heroui/react";
+import useSWR from "swr";
+import { fetcher } from "@/utils/fetcher";
+import type { Tables } from "@/types/supabase";
 
-interface EmailList { id: string; name: string; count: number; selected: boolean; }
+type Campaign = Tables<'campaigns'>;
 
 export const EmailSelector: React.FC = () => {
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [emailLists, setEmailLists] = React.useState<EmailList[]>([ { id: "1", name: "Newsletter Subscribers", count: 5420, selected: true }, { id: "2", name: "New Customers", count: 1250, selected: false }, { id: "3", name: "Inactive Users", count: 3100, selected: false }, { id: "4", name: "Product Updates", count: 4200, selected: true }, ]);
+  const { data: campaigns, error } = useSWR<Campaign[]>('/api/campaigns', fetcher);
+  const [selectedCampaigns, setSelectedCampaigns] = React.useState<Set<string>>(new Set());
 
-  const filteredLists = emailLists.filter((list) => list.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const handleToggleList = (id: string) => { setEmailLists(emailLists.map((list) => list.id === id ? { ...list, selected: !list.selected } : list)); };
-  const selectedCount = emailLists.filter((list) => list.selected).reduce((sum, list) => sum + list.count, 0);
+  const handleToggleCampaign = (id: string) => {
+    setSelectedCampaigns(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  if (error) return <div>Failed to load lists</div>;
+  if (!campaigns) return <div className="flex items-center justify-center h-full"><Spinner /></div>;
+
+  const filteredLists = campaigns.filter((campaign) =>
+    campaign.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <Input placeholder="Search lists..." size="sm" startContent={<Icon icon="lucide:search" />} value={searchQuery} onValueChange={setSearchQuery}/>
+      <Input
+        placeholder="Search lists..."
+        size="sm"
+        startContent={<Icon icon="lucide:search" className="text-default-400" />}
+        value={searchQuery}
+        onValueChange={setSearchQuery}
+      />
+
       <ScrollShadow className="flex-grow">
         <div className="space-y-2">
-          {filteredLists.map((list) => (
-            <div key={list.id} className="flex items-center justify-between rounded-medium p-2 hover:bg-content2">
-              <Checkbox isSelected={list.selected} onValueChange={() => handleToggleList(list.id)} size="sm">
-                <div className="flex flex-col"><span className="text-small">{list.name}</span><span className="text-tiny text-default-500">{list.count.toLocaleString()} contacts</span></div>
+          {filteredLists.map((campaign) => (
+            <div
+              key={campaign.id}
+              className="flex items-center justify-between rounded-medium p-2 hover:bg-content2"
+            >
+              <Checkbox
+                isSelected={selectedCampaigns.has(campaign.id)}
+                onValueChange={() => handleToggleCampaign(campaign.id)}
+                size="sm"
+              >
+                <div className="flex flex-col">
+                  <span className="text-small">{campaign.name}</span>
+                  <span className="text-tiny text-default-500 capitalize">{campaign.status}</span>
+                </div>
               </Checkbox>
             </div>
           ))}
         </div>
       </ScrollShadow>
+
       <div className="mt-auto border-t border-divider pt-3 text-center">
-        <p className="mb-2 text-small"><span className="font-medium">{selectedCount.toLocaleString()}</span> contacts selected</p>
-        <Button size="sm" color="primary" fullWidth>Apply Selection</Button>
+        <p className="mb-2 text-small">
+          <span className="font-medium">{selectedCampaigns.size}</span> lists selected
+        </p>
+        <Button size="sm" color="primary" fullWidth>
+          Apply Selection
+        </Button>
       </div>
     </div>
   );
 };
-export default EmailSelector;

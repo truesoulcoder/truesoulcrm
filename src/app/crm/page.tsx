@@ -1,10 +1,9 @@
 // src/app/crm/page.tsx
 "use client";
 
-import GoogleMapsLoader from '@/components/maps/GoogleMapsLoader';
+// The CRM page now also just renders the new, powerful table via the CrmView.
 import CrmViewInner from '@/components/views/CrmView';
-
-export const dynamic = 'force-dynamic';
+import GoogleMapsLoader from '@/components/maps/GoogleMapsLoader';
 
 export default function CrmPage() {
   return (
@@ -14,9 +13,7 @@ export default function CrmPage() {
       </div>
       <div className="space-y-4 h-[calc(100vh-12rem)]">
         <GoogleMapsLoader>
-          <div className="w-full h-full">
-            <CrmViewInner />
-          </div>
+          <CrmViewInner />
         </GoogleMapsLoader>
       </div>
     </div>

@@ -10,7 +10,8 @@ import { CampaignStatus } from "./campaign-status";
 import { EmailSelector } from "./email-selector";
 import { TemplatePreview } from "./template-preview";
 import { CampaignSettings } from "./campaign-settings";
-import { LeadsTable } from "./leads-table";
+// import { LeadsTable } from "./leads-table"; // Replaced by OmegaTable
+import OmegaTable from '@/components/layout/OmegaTable'; // Added OmegaTable import
 
 // CSS imports for react-grid-layout
 import "react-grid-layout/css/styles.css";
@@ -69,7 +70,7 @@ export const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     { i: "console", title: "Console Log", subtitle: "Real-time campaign updates", component: <CampaignConsole isRunning={isRunning} isPaused={isPaused} /> },
     { i: "template", title: "Template Preview", subtitle: "Current email template", component: <TemplatePreview /> },
     { i: "settings", title: "Campaign Settings", subtitle: "Configure campaign parameters", component: <CampaignSettings currentCampaign={currentCampaign} /> },
-    { i: "leads", title: "Campaign Leads", subtitle: "Manage your campaign leads", component: <LeadsTable /> },
+    { i: "leads", title: "Campaign Leads", subtitle: "Manage your campaign leads", component: <OmegaTable /> }, // Replaced LeadsTable with OmegaTable
   ];
 
   const defaultLayouts: Layouts = React.useMemo(() => ({

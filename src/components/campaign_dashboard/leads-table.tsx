@@ -1,4 +1,5 @@
-import React from "react";
+// src/components/campaign_dashboard/leads-table.tsx
+import React, { useState, useMemo, useCallback } from "react";
 import { Icon } from "@iconify/react";
 import {
   Table,
@@ -10,88 +11,176 @@ import {
   Pagination,
   Button,
   useDisclosure,
-  Tooltip,
   Chip,
+  Spinner,
+  Input,
+  SortDescriptor,
+  Selection,
 } from "@heroui/react";
-import { LeadModal } from "./lead-modal";
+import useSWR from 'swr';
+import { Tables, Enums } from "@/types/supabase";
+import LeadFormModal from "@/components/leads/LeadFormModal";
+import { fetcher } from "@/utils/fetcher";
 
-export interface Lead {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  company: string;
-  status: "new" | "contacted" | "qualified" | "proposal" | "closed" | "lost";
-  source: string;
-  dateAdded: string;
-}
+type PropertyWithContacts = Tables<'properties_with_contacts'>;
+type LeadStatus = Enums<'lead_status'>;
 
-const initialLeads: Lead[] = [
-  // Using only the first 6 for brevity
-  { id: "1", name: "John Smith", email: "john.smith@example.com", phone: "(555) 123-4567", company: "Acme Inc.", status: "new", source: "Website", dateAdded: "2023-06-15" },
-  { id: "2", name: "Sarah Johnson", email: "sarah.j@techcorp.com", phone: "(555) 987-6543", company: "Tech Corp", status: "contacted", source: "LinkedIn", dateAdded: "2023-06-18" },
-  { id: "3", name: "Michael Brown", email: "mbrown@globalfirm.com", phone: "(555) 456-7890", company: "Global Firm", status: "qualified", source: "Referral", dateAdded: "2023-06-20" },
-  { id: "4", name: "Emily Davis", email: "emily.davis@innovate.co", phone: "(555) 234-5678", company: "Innovate Co", status: "proposal", source: "Trade Show", dateAdded: "2023-06-22" },
-  { id: "5", name: "Robert Wilson", email: "rwilson@megacorp.com", phone: "(555) 876-5432", company: "Mega Corp", status: "closed", source: "Email Campaign", dateAdded: "2023-06-25" },
-  { id: "6", name: "Jennifer Lee", email: "jlee@startupinc.com", phone: "(555) 345-6789", company: "Startup Inc", status: "lost", source: "Cold Call", dateAdded: "2023-06-28" },
+const statusColorMap: Record<LeadStatus, "primary" | "secondary" | "success" | "warning" | "danger" | "default"> = {
+  "New Lead": "primary", "Attempted to Contact": "secondary", "Contacted": "secondary",
+  "Working/In Progress": "warning", "Contract Sent": "warning", "Qualified": "success",
+  "Unqualified/Disqualified": "danger", "Nurture": "default", "Meeting Set": "success",
+  "Closed - Converted/Customer": "success", "Closed - Not Converted/Opportunity Lost": "danger",
+};
+
+const columns = [
+  { name: "PROPERTY", uid: "property_address", sortable: true },
+  { name: "OWNER", uid: "contact_names", sortable: true },
+  { name: "STATUS", uid: "status", sortable: true },
+  { name: "MARKET", uid: "market_region", sortable: true },
+  { name: "DATE ADDED", uid: "created_at", sortable: true },
+  { name: "ACTIONS", uid: "actions" },
 ];
 
-const statusColorMap: Record<string, "primary" | "secondary" | "success" | "warning" | "danger" | "default"> = { new: "primary", contacted: "secondary", qualified: "success", proposal: "warning", closed: "success", lost: "danger" };
-const statusNameMap: Record<string, string> = { new: "New", contacted: "Contacted", qualified: "Qualified", proposal: "Proposal", closed: "Closed Won", lost: "Closed Lost" };
-
-const columns = [ { name: "NAME", uid: "name", sortable: true }, { name: "EMAIL", uid: "email", sortable: true }, { name: "COMPANY", uid: "company", sortable: true }, { name: "STATUS", uid: "status", sortable: true }, { name: "ACTIONS", uid: "actions" } ];
-
 export const LeadsTable: React.FC = () => {
-  const [leads, setLeads] = React.useState<Lead[]>(initialLeads);
-  const [page, setPage] = React.useState(1);
-  const rowsPerPage = 5;
-  const { isOpen, onOpen, onClose, onOpenChange } = useDisclosure();
-  const [currentLead, setCurrentLead] = React.useState<Lead | null>(null);
-  const [isNewLead, setIsNewLead] = React.useState(false);
-
-  const handleRowClick = React.useCallback((lead: Lead) => { setCurrentLead(lead); setIsNewLead(false); onOpen(); }, [onOpen]);
-  const handleAddLead = () => { setCurrentLead(null); setIsNewLead(true); onOpen(); };
-  const handleSaveLead = (lead: Lead) => {
-    if (isNewLead) {
-      setLeads([...leads, { ...lead, id: (leads.length + 1).toString(), dateAdded: new Date().toISOString().split('T')[0] }]);
-    } else {
-      setLeads(leads.map(l => l.id === lead.id ? lead : l));
-    }
-    onClose();
-  };
-  const handleDeleteLead = React.useCallback((id: string) => { setLeads(leads.filter(lead => lead.id !== id)); onClose(); }, [leads, onClose]);
+  const { isOpen, onOpen, onClose } = useDisclosure();
   
-  const pages = Math.ceil(leads.length / rowsPerPage);
-  const items = React.useMemo(() => {
-    const start = (page - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    return leads.slice(start, end);
-  }, [page, leads, rowsPerPage]);
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(5);
+  const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({ column: "created_at", direction: "descending" });
+  const [filterValue, setFilterValue] = useState("");
+  const [selectedLead, setSelectedLead] = useState<Tables<'properties'> | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set([]));
 
-  const renderCell = React.useCallback((lead: Lead, columnKey: React.Key) => {
-    const cellValue = lead[columnKey as keyof Lead];
-    if (columnKey === "status") {
-      return <Chip color={statusColorMap[lead.status]} size="sm" variant="flat">{statusNameMap[lead.status]}</Chip>;
+  const swrKey = `/api/leads?page=${page}&pageSize=${rowsPerPage}&sort=${sortDescriptor.column}&order=${sortDescriptor.direction === 'ascending' ? 'asc' : 'desc'}&filter=${filterValue}`;
+  const { data, error, mutate, isLoading } = useSWR<{ data: PropertyWithContacts[], count: number }>(swrKey, fetcher);
+
+  const leads = data?.data ?? [];
+  const totalLeads = data?.count ?? 0;
+  const pages = Math.ceil(totalLeads / rowsPerPage);
+
+  const handleRowClick = (lead: PropertyWithContacts) => {
+    setSelectedLead(lead as Tables<'properties'>);
+    onOpen();
+  };
+  
+  const onSearchChange = useCallback((value?: string) => {
+    setFilterValue(value || "");
+    setPage(1);
+  }, []);
+
+  const topContent = useMemo(() => (
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-between gap-3 items-center">
+        <Input
+          isClearable
+          className="w-full sm:max-w-xs"
+          placeholder="Search by address or owner..."
+          startContent={<Icon icon="lucide:search" className="text-default-500" />}
+          value={filterValue}
+          onClear={() => setFilterValue("")}
+          onValueChange={onSearchChange}
+          size="md" // Increased input size
+        />
+        <Button color="primary" onPress={() => { setSelectedLead(null); onOpen(); }} startContent={<Icon icon="lucide:plus" />}>
+          Add Lead
+        </Button>
+      </div>
+      <span className="text-default-500 text-xs">Total {totalLeads} leads</span>
+    </div>
+  ), [filterValue, onSearchChange, totalLeads]);
+
+  const bottomContent = useMemo(() => {
+    return (
+      <div className="py-2 px-2 flex justify-between items-center">
+        <select
+          className="bg-transparent outline-none text-default-500 text-xs"
+          onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(1); }}
+          value={rowsPerPage}
+        >
+          <option value="5">5 rows</option>
+          <option value="10">10 rows</option>
+          <option value="25">25 rows</option>
+        </select>
+        <Pagination
+          showControls
+          color="primary"
+          page={page}
+          total={pages}
+          onChange={setPage}
+        />
+      </div>
+    );
+  }, [page, pages, rowsPerPage]);
+
+  const renderCell = useCallback((lead: PropertyWithContacts, columnKey: React.Key) => {
+    const cellValue = lead[columnKey as keyof PropertyWithContacts];
+    switch (columnKey) {
+      case "property_address":
+        return (
+          <div>
+            <p className="font-medium text-sm">{lead.property_address || "N/A"}</p>
+            <p className="text-xs text-default-500">{`${lead.property_city || ''}, ${lead.property_state || ''}`}</p>
+          </div>
+        );
+      case "created_at":
+        return <p className="text-xs">{new Date(cellValue as string).toLocaleDateString()}</p>;
+      case "status":
+        return <Chip color={statusColorMap[lead.status!]} size="sm" variant="flat" className="capitalize text-xs">{lead.status}</Chip>;
+      case "actions":
+        return (
+          <div className="relative flex items-center gap-2">
+            <Button isIconOnly size="sm" variant="light" onPress={() => handleRowClick(lead)}>
+              <Icon icon="lucide:edit" className="text-lg" />
+            </Button>
+          </div>
+        );
+      default:
+        return <p className="text-sm">{String(cellValue ?? '')}</p>;
     }
-    if (columnKey === "actions") {
-      return (
-        <div className="relative flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          <Tooltip content="Edit lead"><Button isIconOnly size="sm" variant="light" onPress={() => handleRowClick(lead)}><Icon icon="lucide:edit" width={18} /></Button></Tooltip>
-          <Tooltip color="danger" content="Delete lead"><Button isIconOnly size="sm" variant="light" color="danger" onPress={() => handleDeleteLead(lead.id)}><Icon icon="lucide:trash-2" width={18} /></Button></Tooltip>
-        </div>
-      );
-    }
-    return cellValue;
-  }, [handleDeleteLead, handleRowClick]);
+  }, []);
+
+  if (error) return <p className="text-danger-500 p-4">Failed to load leads: {error.message}</p>;
 
   return (
-    <div className="w-full h-full flex flex-col">
-      <Table aria-label="Leads table" topContent={<Button color="primary" startContent={<Icon icon="lucide:plus" />} onPress={handleAddLead}>Add Lead</Button>} bottomContent={<div className="flex w-full justify-center"><Pagination isCompact showControls page={page} total={pages} onChange={setPage} /></div>}>
-        <TableHeader columns={columns}>{(column) => <TableColumn key={column.uid} allowsSorting={column.sortable}>{column.name}</TableColumn>}</TableHeader>
-        <TableBody items={items} emptyContent="No leads found">{(item) => <TableRow key={item.id} onClick={() => handleRowClick(item)}>{(columnKey) => <TableCell>{renderCell(item, columnKey)}</TableCell>}</TableRow>}</TableBody>
+    <>
+      <Table
+        aria-label="Leads table"
+        isHeaderSticky
+        bottomContent={bottomContent}
+        bottomContentPlacement="outside"
+        classNames={{ wrapper: "max-h-[calc(100vh-28rem)]", th: "text-xs uppercase bg-default-100" }}
+        selectedKeys={selectedKeys}
+        selectionMode="multiple"
+        sortDescriptor={sortDescriptor}
+        topContent={topContent}
+        topContentPlacement="outside"
+        onSelectionChange={setSelectedKeys}
+        onSortChange={setSortDescriptor}
+      >
+        <TableHeader columns={columns}>
+          {(column) => (
+            <TableColumn key={column.uid} align="start" allowsSorting={column.sortable}>
+              {column.name}
+            </TableColumn>
+          )}
+        </TableHeader>
+        <TableBody
+          emptyContent={!isLoading ? "No leads found" : " "}
+          items={leads}
+          isLoading={isLoading}
+          loadingContent={<Spinner label="Loading leads..." />}
+        >
+          {(item) => (
+            <TableRow key={item.property_id} className="cursor-pointer" onPress={() => handleRowClick(item)}>
+              {(columnKey) => <TableCell>{renderCell(item, columnKey)}</TableCell>}
+            </TableRow>
+          )}
+        </TableBody>
       </Table>
-      <LeadModal isOpen={isOpen} onOpenChange={onOpenChange} lead={currentLead} isNew={isNewLead} onSave={handleSaveLead} onDelete={handleDeleteLead} />
-    </div>
+      
+      {isOpen && (
+        <LeadFormModal isOpen={isOpen} onClose={() => { onClose(); mutate(); }} property={selectedLead || undefined} />
+      )}
+    </>
   );
-};  
-export default LeadsTable;
+};

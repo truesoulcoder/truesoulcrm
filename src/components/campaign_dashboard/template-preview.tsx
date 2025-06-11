@@ -1,20 +1,45 @@
+// src/components/campaign_dashboard/template-preview.tsx
 import React from "react";
 import { Icon } from "@iconify/react";
 import { Tabs, Tab, Button, ScrollShadow } from "@heroui/react";
 import Image from "next/image";
 
+// Reverted to the original hardcoded templates
+const hardcodedTemplates = {
+  template1: {
+    name: "Summer Promotion",
+    subject: "Summer Sale: 30% Off Everything!",
+    preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-1",
+  },
+  template2: {
+    name: "Product Launch",
+    subject: "Introducing Our New Collection",
+    preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-2",
+  },
+  template3: {
+    name: "Newsletter",
+    subject: "This Week's Top Stories",
+    preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-3",
+  },
+};
+
 export const TemplatePreview: React.FC = () => {
   const [activeTemplate, setActiveTemplate] = React.useState("template1");
-  const templates = {
-    template1: { name: "Summer Promotion", subject: "Summer Sale: 30% Off Everything!", preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-1" },
-    template2: { name: "Product Launch", subject: "Introducing Our New Collection", preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-2" },
-    template3: { name: "Newsletter", subject: "This Week's Top Stories", preview: "https://img.heroui.chat/image/ai?w=800&h=600&u=email-template-3" },
-  };
-  const currentTemplate = templates[activeTemplate as keyof typeof templates];
+  const currentTemplate =
+    hardcodedTemplates[activeTemplate as keyof typeof hardcodedTemplates];
 
   return (
     <div className="flex h-full flex-col">
-      <Tabs aria-label="Email templates" selectedKey={activeTemplate} onSelectionChange={(key) => setActiveTemplate(key as string)}>
+      <Tabs
+        aria-label="Email templates"
+        selectedKey={activeTemplate}
+        onSelectionChange={(key) => setActiveTemplate(key as string)}
+        classNames={{
+          tabList: "gap-4",
+          cursor: "w-full",
+          tab: "max-w-fit px-0 h-8",
+        }}
+      >
         <Tab key="template1" title="Summer Promotion" />
         <Tab key="template2" title="Product Launch" />
         <Tab key="template3" title="Newsletter" />
@@ -24,9 +49,9 @@ export const TemplatePreview: React.FC = () => {
           <p className="text-small font-medium">{currentTemplate.subject}</p>
           <p className="text-tiny text-default-500">From: marketing@example.com</p>
         </div>
-        <Button 
-          size="sm" 
-          variant="flat" 
+        <Button
+          size="sm"
+          variant="flat"
           startContent={<Icon icon="lucide:edit-3" width={16} height={16} />}
         >
           Edit
@@ -34,9 +59,9 @@ export const TemplatePreview: React.FC = () => {
       </div>
       <ScrollShadow className="mt-3 flex-grow rounded-medium border border-divider">
         <div className="relative h-full w-full">
-          <Image 
-            src={currentTemplate.preview} 
-            alt="Email template preview" 
+          <Image
+            src={currentTemplate.preview}
+            alt="Email template preview"
             fill
             priority
             className="object-cover"
@@ -47,4 +72,3 @@ export const TemplatePreview: React.FC = () => {
     </div>
   );
 };
-export default TemplatePreview;
