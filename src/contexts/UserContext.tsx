@@ -1,9 +1,7 @@
 "use client";
 
-import { Session, Subscription, User } from '@supabase/supabase-js';
-import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-
+import { Session, User } from '@supabase/supabase-js';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/lib/supabase/client';
 
 interface UserContextType {
@@ -111,8 +109,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     avatarUrl,
   };
 
-  // The loading state is now handled by the RequireAuth component,
-  // which prevents rendering of protected routes until the user state is confirmed.
   return (
     <UserContext.Provider value={value}>
       {children}

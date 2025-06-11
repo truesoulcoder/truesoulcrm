@@ -1,9 +1,10 @@
 // src/lib/dashboard/data.ts
-import { supabase } from '../supabase/client'; // Adjusted path assuming supabase client is in src/lib/supabase/client.ts
+import { supabase } from '../supabase/client';
 
 export async function getTotalLeads(): Promise<number> {
+  // FIX: The main table for properties/leads is `properties`.
   const { error, count } = await supabase
-    .from('leads')
+    .from('properties')
     .select('*', { count: 'exact', head: true });
 
   if (error) {
@@ -14,6 +15,7 @@ export async function getTotalLeads(): Promise<number> {
 }
 
 export async function getActiveCampaigns(): Promise<number> {
+  // This function is correct as the 'campaigns' table exists.
   const { error, count } = await supabase
     .from('campaigns')
     .select('*', { count: 'exact', head: true })
@@ -26,41 +28,46 @@ export async function getActiveCampaigns(): Promise<number> {
   return count ?? 0;
 }
 
-// Assuming a `campaign_stats` table or similar for these metrics.
-// Adjust table and column names as per your actual schema.
-
 export async function getEmailsSent(): Promise<number> {
+  // FIX: Query the `daily_email_metrics` view which exists in the schema.
   const { data, error } = await supabase
-    .from('campaign_stats') // Replace if your table is different (e.g., 'email_activity_logs')
-    .select('emails_sent'); // Replace if your column is different (e.g., 'sent_count')
+    .from('daily_email_metrics')
+    .select('sent');
 
   if (error) {
     console.error('Error fetching emails sent:', error);
     throw new Error(`Error fetching emails sent: ${error.message}`);
   }
 
-  // This assumes 'emails_sent' is a numeric column in each record.
-  // If 'emails_sent' is a summary on a campaign, or if you need to count rows in an email log,
-  // the query and aggregation will be different.
-  return data?.reduce((sum, record) => sum + (record.emails_sent || 0), 0) ?? 0;
+  // Sum the 'sent' count from all daily records.
+  return data?.reduce((sum, record) => sum + (record.sent || 0), 0) ?? 0;
 }
 
 export async function getOpenRate(): Promise<number> {
+  // FIX: Query the `daily_email_metrics` view and calculate the overall open rate.
   const { data, error } = await supabase
-    .from('campaign_stats') // Replace if your table is different
-    .select('open_rate');   // Replace if your column is different
+    .from('daily_email_metrics')
+    .select('opened, delivered');
 
   if (error) {
-    console.error('Error fetching open rate:', error);
-    throw new Error(`Error fetching open rate: ${error.message}`);
+    console.error('Error fetching open rate data:', error);
+    throw new Error(`Error fetching open rate data: ${error.message}`);
   }
 
   if (!data || data.length === 0) return 0;
 
-  // This calculates an average open rate from multiple records.
-  // If 'open_rate' is a pre-calculated value or on a specific campaign record, adjust accordingly.
-  const totalOpenRate = data.reduce((sum, record) => sum + (record.open_rate || 0), 0);
-  const averageOpenRate = totalOpenRate / data.length;
+  const totals = data.reduce(
+    (acc, record) => {
+      acc.opened += record.opened || 0;
+      acc.delivered += record.delivered || 0;
+      return acc;
+    },
+    { opened: 0, delivered: 0 }
+  );
+
+  if (totals.delivered === 0) return 0;
+
+  const overallOpenRate = (totals.opened / totals.delivered) * 100;
   
-  return parseFloat(averageOpenRate.toFixed(1)); // e.g., 12.3 for 12.3%
+  return parseFloat(overallOpenRate.toFixed(1)); // e.g., 12.3 for 12.3%
 }
