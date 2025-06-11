@@ -35,5 +35,6 @@ export async function GET(request: NextRequest) {
   }
 
   // return the user to an error page with instructions
+  console.error('Error in auth callback: Missing code or session exchange failed.');
   return NextResponse.redirect(`${origin}/auth/auth-code-error`);
 }

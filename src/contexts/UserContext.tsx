@@ -27,77 +27,39 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const initializeSession = async () => {
-      try {
-        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) throw sessionError;
-
-        if (isMounted) {
-          setSession(currentSession);
-          const currentUser = currentSession?.user ?? null;
-          setUser(currentUser);
-
-          if (currentUser) {
-            const userRoleFromMetadata = (currentUser.user_metadata?.user_role as string) || null;
-            setRole(userRoleFromMetadata);
-
-            const userFullName = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || null;
-            const userAvatarUrl = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null;
-
-            setFullName(userFullName as string);
-            setAvatarUrl(userAvatarUrl as string);
-          } else {
-            setRole(null);
-          }
-        }
-      } catch (err) {
-        if (err instanceof Error) {
-          console.error("UserContext: Initialization Error:", err.message);
-          setError(err.message);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void initializeSession();
-
+    // onAuthStateChange fires immediately with the initial session state,
+    // and then listens for any changes. This is the most reliable way
+    // to manage auth state on the client and avoids race conditions.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        if (isMounted) {
-          setSession(newSession);
-          const newUser = newSession?.user ?? null;
-          setUser(newUser);
+      (_event, newSession) => {
+        setSession(newSession);
+        const newUser = newSession?.user ?? null;
+        setUser(newUser);
 
-          if (newUser) {
-            const userRoleFromMetadata = (newUser.user_metadata?.user_role as string) || null;
-            setRole(userRoleFromMetadata);
+        if (newUser) {
+          const userRoleFromMetadata = (newUser.user_metadata?.user_role as string) || null;
+          setRole(userRoleFromMetadata);
 
-            const userFullName = newUser.user_metadata?.full_name || newUser.user_metadata?.name || newUser.email?.split('@')[0] || null;
-            const userAvatarUrl = newUser.user_metadata?.avatar_url || newUser.user_metadata?.picture || null;
+          const userFullName = newUser.user_metadata?.full_name || newUser.user_metadata?.name || newUser.email?.split('@')[0] || null;
+          const userAvatarUrl = newUser.user_metadata?.avatar_url || newUser.user_metadata?.picture || null;
 
-            setFullName(userFullName as string);
-            setAvatarUrl(userAvatarUrl as string);
-          } else {
-            setRole(null);
-            setFullName(null);
-            setAvatarUrl(null);
-          }
-          setIsLoading(false);
+          setFullName(userFullName as string);
+          setAvatarUrl(userAvatarUrl as string);
+        } else {
+          setRole(null);
+          setFullName(null);
+          setAvatarUrl(null);
         }
+        // Whether a session is found or not, the check is complete, so we are no longer loading.
+        setIsLoading(false);
       }
     );
 
+    // Cleanup the subscription when the component unmounts
     return () => {
-      isMounted = false;
       subscription?.unsubscribe();
     };
-  }, []);
+  }, []); // The empty dependency array ensures this effect runs only once on mount.
 
   const value = {
     session,

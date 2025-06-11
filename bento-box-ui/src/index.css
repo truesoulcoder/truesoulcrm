@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Add these styles for the draggable dashboard */
+.react-grid-item.react-grid-placeholder {
+  background: hsl(var(--heroui-primary-300)) !important;
+  opacity: 0.3;
+  border-radius: var(--heroui-radius-medium);
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+}
+
+/* Add the missing react-resizable styles directly */
+.react-resizable {
+  position: relative;
+}
+
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background-repeat: no-repeat;
+  background-origin: content-box;
+  box-sizing: border-box;
+  background-position: bottom right;
+  padding: 0 3px 3px 0;
+}
+
+.react-resizable-handle.react-resizable-handle-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  z-index: 10;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid hsl(var(--heroui-default-400));
+  border-bottom: 2px solid hsl(var(--heroui-default-400));
+  border-radius: 1px;
+}
+
+.react-grid-item.resizing {
+  opacity: 0.9;
+}
+
+.react-grid-item.react-draggable-dragging {
+  opacity: 0.8;
+  z-index: 3;
+}

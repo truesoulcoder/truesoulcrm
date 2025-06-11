@@ -1,7 +1,6 @@
 import React from "react";
 import {
   Navbar,
-  NavbarBrand,
   NavbarMenuToggle,
   NavbarMenuItem,
   NavbarMenu,
@@ -27,19 +26,6 @@ function getInitials(name?: string): string {
   return '??';
 }
 
-export const Logo = () => {
-  return (
-    <svg fill="none" height="36" viewBox="0 0 32 32" width="36"> {/* Adjusted size */}
-      <path
-        clipRule="evenodd"
-        d="M17.6482 10.1305L15.8785 7.02583L7.02979 22.5499H10.5278L17.6482 10.1305ZM19.8798 14.0457L18.11 17.1983L19.394 19.4511H16.8453L15.1056 22.5499H24.7272L19.8798 14.0457Z"
-        fill="currentColor"
-        fillRule="evenodd"
-      />
-    </svg>
-  );
-};
-
 // Define menu item paths
 const menuItemPaths: { [key: string]: string } = {
   "Campaign Dashboard": "/campaigns",
@@ -52,7 +38,8 @@ const menuItemPaths: { [key: string]: string } = {
 
 export default function App() {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
-  const { user, fullName: userFullName, email: userEmail, isLoading } = useUser(); // Get user data
+  const { user, fullName: userFullName, isLoading } = useUser(); // Get user data
+  const userEmail = user?.email;
   const router = useRouter();
 
   const menuItems = [
@@ -83,14 +70,7 @@ export default function App() {
       <NavbarContent justify="start">
         <NavbarMenuToggle aria-label={isMenuOpen ? "Close menu" : "Open menu"} />
       </NavbarContent>
-
-      {/* Logo and Brand Name - visible on all screens */}
-      <NavbarContent justify="center" className="sm:justify-start"> {/* Adjusted for consistency */}
-        <NavbarBrand as={NextLink} href="/">
-          <Logo />
-          <p className="font-bold text-inherit ml-2">ACME</p>
-        </NavbarBrand>
-      </NavbarContent>
+      
 
       {/* Right side content: ThemeSelector and User Avatar */}
       <NavbarContent justify="end">
@@ -111,7 +91,7 @@ export default function App() {
               {initials}
             </div>
           ) : (
-            <Button as={NextLink} href="/login" color="primary" variant="ghost">
+            <Button as={NextLink} href="" color="primary" variant="ghost">
               Sign In
             </Button>
           )}

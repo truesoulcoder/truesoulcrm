@@ -30,6 +30,14 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      // === ADD THIS BLOCK ===
+      {
+        protocol: 'https',
+        hostname: 'img.heroui.chat',
+        port: '',
+        pathname: '/image/**',
+      },
+      // ======================
     ],
   },
   webpack: (config, { isServer, dev, webpack }) => {

@@ -32,7 +32,7 @@ const ThemeSelector = () => {
   return (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-circle" title="Change theme">
-        <Palette size={18} />
+        <Palette size={4} />
       </label>
       <div 
         tabIndex={0}
