@@ -33,3 +33,4 @@ export const EmailSelector: React.FC = () => {
     </div>
   );
 };
+export default EmailSelector;

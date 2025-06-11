@@ -48,3 +48,4 @@ export const CampaignStatus: React.FC<CampaignStatusProps> = ({ isRunning, isPau
     </div>
   );
 };
+export default CampaignStatus;

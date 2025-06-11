@@ -71,3 +71,5 @@ export const CampaignConsole: React.FC<CampaignConsoleProps> = ({ isRunning, isP
     </div>
   );
 };
+
+export default CampaignConsole;

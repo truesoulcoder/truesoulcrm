@@ -1,10 +1,12 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 
 export async function updateUserProfile() {
   try {
-    const supabase = await createClient();
+    const cookieStore = cookies();
+    const supabase = createClient(cookieStore);
     
     // Get the current user
     const { data: { user }, error: userError } = await supabase.auth.getUser();

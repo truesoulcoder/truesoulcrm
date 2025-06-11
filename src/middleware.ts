@@ -36,7 +36,7 @@ export async function middleware(request: NextRequest) { //
         // FIX: Modify the 'response' object directly, do NOT re-create it.
         remove(name: string, options: CookieOptions) { //
           request.cookies.set({ name, value: '', ...options }); //
-          response.cookies.delete(name, options); //
+          response.cookies.delete(name); //
         }, //
       }, //
     } //

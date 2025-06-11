@@ -4,13 +4,13 @@ import React from "react";
 import { Icon } from "@iconify/react";
 import { Card, CardHeader, CardBody, Button } from "@heroui/react";
 import { Responsive, WidthProvider } from "react-grid-layout";
-import { CampaignChart } from "./CampaignChart";
-import { CampaignConsole } from "./CampaignConsole";
-import { CampaignStatus } from "./CampaignStatus";
-import { EmailSelector } from "./EmailSelector";
-import { TemplatePreview } from "./TemplatePreview";
-import { CampaignSettings } from "./CampaignSettings";
-import { LeadsTable } from "./LeadsTable";
+import { CampaignChart } from "./campaign-chart";
+import { CampaignConsole } from "./campaign-console";
+import { CampaignStatus } from "./campaign-status";
+import { EmailSelector } from "./email-selector";
+import { TemplatePreview } from "./template-preview";
+import { CampaignSettings } from "./campaign-settings";
+import { LeadsTable } from "./leads-table";
 
 // CSS imports for react-grid-layout
 import "react-grid-layout/css/styles.css";
@@ -24,6 +24,30 @@ interface DashboardItem {
   subtitle: string;
   component: React.ReactNode;
 }
+
+interface LayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  maxW?: number;
+  minH?: number;
+  maxH?: number;
+  static?: boolean;
+  isDraggable?: boolean;
+  isResizable?: boolean;
+  moved?: boolean;
+  isBounded?: boolean;
+}
+
+type Layouts = {
+  lg: LayoutItem[];
+  md: LayoutItem[];
+  sm: LayoutItem[];
+  [key: string]: LayoutItem[]; // For any additional breakpoints
+};
 
 interface DraggableDashboardProps {
   isRunning: boolean;
@@ -48,11 +72,11 @@ export const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     { i: "leads", title: "Campaign Leads", subtitle: "Manage your campaign leads", component: <LeadsTable /> },
   ];
 
-  const defaultLayouts = {
-    lg: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 1, y: 0, w: 2, h: 2 }, { i: "emails", x: 3, y: 0, w: 1, h: 2 }, { i: "console", x: 0, y: 2, w: 2, h: 2 }, { i: "template", x: 2, y: 2, w: 2, h: 2 }, { i: "settings", x: 0, y: 4, w: 4, h: 2 }, { i: "leads", x: 0, y: 6, w: 4, h: 4 }, ],
-    md: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 1, y: 0, w: 2, h: 2 }, { i: "emails", x: 0, y: 2, w: 1, h: 2 }, { i: "console", x: 1, y: 2, w: 2, h: 2 }, { i: "template", x: 0, y: 4, w: 3, h: 2 }, { i: "settings", x: 0, y: 6, w: 3, h: 2 }, { i: "leads", x: 0, y: 8, w: 3, h: 4 }, ],
-    sm: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 0, y: 2, w: 1, h: 2 }, { i: "emails", x: 0, y: 4, w: 1, h: 2 }, { i: "console", x: 0, y: 6, w: 1, h: 2 }, { i: "template", x: 0, y: 8, w: 1, h: 2 }, { i: "settings", x: 0, y: 10, w: 1, h: 2 }, { i: "leads", x: 0, y: 12, w: 1, h: 4 }, ],
-  };
+  const defaultLayouts: Layouts = React.useMemo(() => ({
+    lg: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 1, y: 0, w: 2, h: 2 }, { i: "emails", x: 3, y: 0, w: 1, h: 2 }, { i: "console", x: 0, y: 2, w: 2, h: 2 }, { i: "template", x: 2, y: 2, w: 2, h: 2 }, { i: "settings", x: 0, y: 4, w: 4, h: 2 }, { i: "leads", x: 0, y: 6, w: 4, h: 4 } ],
+    md: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 1, y: 0, w: 2, h: 2 }, { i: "emails", x: 0, y: 2, w: 1, h: 2 }, { i: "console", x: 1, y: 2, w: 2, h: 2 }, { i: "template", x: 0, y: 4, w: 3, h: 2 }, { i: "settings", x: 0, y: 6, w: 3, h: 2 }, { i: "leads", x: 0, y: 8, w: 3, h: 4 } ],
+    sm: [ { i: "status", x: 0, y: 0, w: 1, h: 2 }, { i: "chart", x: 0, y: 2, w: 1, h: 2 }, { i: "emails", x: 0, y: 4, w: 1, h: 2 }, { i: "console", x: 0, y: 6, w: 1, h: 2 }, { i: "template", x: 0, y: 8, w: 1, h: 2 }, { i: "settings", x: 0, y: 10, w: 1, h: 2 }, { i: "leads", x: 0, y: 12, w: 1, h: 4 } ],
+  }), []);
 
   const [layouts, setLayouts] = React.useState(defaultLayouts);
   const [isMounted, setIsMounted] = React.useState(false);
@@ -78,15 +102,15 @@ export const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         console.error("Could not parse dashboard layouts from localStorage", e);
       }
     }
-  }, [isMounted]);
+  }, [isMounted, defaultLayouts]);
 
-  const saveToLS = (key: string, value: any) => {
+  const saveToLS = (key: string, value: Layouts) => {
     if (typeof window !== "undefined") {
       localStorage.setItem(key, JSON.stringify(value));
     }
   };
 
-  const handleLayoutChange = (currentLayout: any, allLayouts: any) => {
+  const handleLayoutChange = (currentLayout: LayoutItem[], allLayouts: Layouts) => {
     if (isEditMode) {
       setLayouts(allLayouts);
       saveToLS("dashboard-layouts", allLayouts);

@@ -2,7 +2,7 @@
 'use client';
 
 import { GoogleMap, StreetViewPanorama, Marker } from '@react-google-maps/api';
-import { MapPin, AlertTriangle, Loader2, Eye, Map as MapIcon } from 'lucide-react';
+import { AlertTriangle, Loader2, Eye, Map as MapIcon } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGoogleMapsApi } from './GoogleMapsLoader';
 
@@ -105,6 +105,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
     zoom: 17,
     disableDefaultUI: true,
     gestureHandling: 'cooperative',
+    mapId: '3fd7ad01f44109d8a07fe0b1',
   };
   
   const panoramaOptions = {
@@ -121,7 +122,7 @@ const StreetViewMapContent: React.FC<StreetViewMapProps> = ({ address }) => {
       <GoogleMap
         mapContainerStyle={{ width: '100%', height: '100%' }}
         {...mapOptions}
-        mapId="3fd7ad01f44109d8a07fe0b1" // Pass the Map ID to the GoogleMap component
+        mapContainerClassName="map-container"
       >
         {hasStreetView && (
           <button

@@ -43,3 +43,4 @@ export const CampaignSettings: React.FC<CampaignSettingsProps> = ({ currentCampa
     </div>
   );
 };
+export default CampaignSettings;

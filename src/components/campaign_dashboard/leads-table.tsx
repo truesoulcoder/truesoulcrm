@@ -10,14 +10,10 @@ import {
   Pagination,
   Button,
   useDisclosure,
-  Dropdown,
-  DropdownTrigger,
-  DropdownMenu,
-  DropdownItem,
   Tooltip,
   Chip,
 } from "@heroui/react";
-import { LeadModal } from "./LeadModal";
+import { LeadModal } from "./lead-modal";
 
 export interface Lead {
   id: string;
@@ -48,12 +44,12 @@ const columns = [ { name: "NAME", uid: "name", sortable: true }, { name: "EMAIL"
 export const LeadsTable: React.FC = () => {
   const [leads, setLeads] = React.useState<Lead[]>(initialLeads);
   const [page, setPage] = React.useState(1);
-  const [rowsPerPage, setRowsPerPage] = React.useState(5);
+  const rowsPerPage = 5;
   const { isOpen, onOpen, onClose, onOpenChange } = useDisclosure();
   const [currentLead, setCurrentLead] = React.useState<Lead | null>(null);
   const [isNewLead, setIsNewLead] = React.useState(false);
 
-  const handleRowClick = (lead: Lead) => { setCurrentLead(lead); setIsNewLead(false); onOpen(); };
+  const handleRowClick = React.useCallback((lead: Lead) => { setCurrentLead(lead); setIsNewLead(false); onOpen(); }, [onOpen]);
   const handleAddLead = () => { setCurrentLead(null); setIsNewLead(true); onOpen(); };
   const handleSaveLead = (lead: Lead) => {
     if (isNewLead) {
@@ -63,7 +59,7 @@ export const LeadsTable: React.FC = () => {
     }
     onClose();
   };
-  const handleDeleteLead = (id: string) => { setLeads(leads.filter(lead => lead.id !== id)); onClose(); };
+  const handleDeleteLead = React.useCallback((id: string) => { setLeads(leads.filter(lead => lead.id !== id)); onClose(); }, [leads, onClose]);
   
   const pages = Math.ceil(leads.length / rowsPerPage);
   const items = React.useMemo(() => {
@@ -86,15 +82,16 @@ export const LeadsTable: React.FC = () => {
       );
     }
     return cellValue;
-  }, []);
+  }, [handleDeleteLead, handleRowClick]);
 
   return (
     <div className="w-full h-full flex flex-col">
       <Table aria-label="Leads table" topContent={<Button color="primary" startContent={<Icon icon="lucide:plus" />} onPress={handleAddLead}>Add Lead</Button>} bottomContent={<div className="flex w-full justify-center"><Pagination isCompact showControls page={page} total={pages} onChange={setPage} /></div>}>
         <TableHeader columns={columns}>{(column) => <TableColumn key={column.uid} allowsSorting={column.sortable}>{column.name}</TableColumn>}</TableHeader>
-        <TableBody items={items} emptyContent="No leads found">{(item) => <TableRow key={item.id} onPress={() => handleRowClick(item)}>{(columnKey) => <TableCell>{renderCell(item, columnKey)}</TableCell>}</TableRow>}</TableBody>
+        <TableBody items={items} emptyContent="No leads found">{(item) => <TableRow key={item.id} onClick={() => handleRowClick(item)}>{(columnKey) => <TableCell>{renderCell(item, columnKey)}</TableCell>}</TableRow>}</TableBody>
       </Table>
       <LeadModal isOpen={isOpen} onOpenChange={onOpenChange} lead={currentLead} isNew={isNewLead} onSave={handleSaveLead} onDelete={handleDeleteLead} />
     </div>
   );
-};
+};  
+export default LeadsTable;

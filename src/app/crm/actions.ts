@@ -4,11 +4,16 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/types/supabase';
+import { cookies } from 'next/headers';
+
+type Tables = Database['public']['Tables'];
+type TablesUpdate<T extends keyof Tables> = Tables[T]['Update'];
 
 // Define shorter types for convenience based on the new schema
-type Property = Tables<'properties'>;
+type Property = Tables['properties']['Row'];
 type PropertyUpdate = TablesUpdate<'properties'>;
 
+const cookiesStore = cookies();
 // Define a consistent server action response
 interface ServerActionResponse<T> {
   success: boolean;
@@ -26,7 +31,7 @@ export async function updatePropertyAction(
   propertyId: string,
   updatedPropertyData: PropertyUpdate
 ): Promise<ServerActionResponse<Property>> {
-  const supabase = createClient();
+  const supabase = createClient(cookiesStore);
 
   if (!propertyId) {
     return { success: false, error: 'Property ID is required for an update.' };
@@ -49,10 +54,11 @@ export async function updatePropertyAction(
     revalidatePath('/crm'); // Invalidate the cache for the CRM page to show updated data
     return { success: true, data: data as Property };
 
-  } catch (e: any) {
-    console.error('Exception in updatePropertyAction:', e);
-    return { success: false, error: e.message || 'An unexpected error occurred.' };
-  }
+} catch (e: unknown) {
+  console.error('Exception in updatePropertyAction:', e);
+  const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred.';
+  return { success: false, error: errorMessage };
+}
 }
 
 /**
@@ -61,7 +67,7 @@ export async function updatePropertyAction(
  * @returns A response object indicating success or failure.
  */
 export async function deletePropertyAction(propertyId: string): Promise<ServerActionResponse<null>> {
-  const supabase = createClient();
+  const supabase = createClient(cookiesStore);
 
   if (!propertyId) {
     return { success: false, error: 'Property ID is required for deletion.' };
@@ -83,9 +89,10 @@ export async function deletePropertyAction(propertyId: string): Promise<ServerAc
     revalidatePath('/crm');
     return { success: true, data: null };
 
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(`Exception in deletePropertyAction:`, e);
-    return { success: false, error: e.message || 'An unexpected error occurred.' };
+    const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred.';
+    return { success: false, error: errorMessage };
   }
 }
 

@@ -106,3 +106,4 @@ export const CampaignChart: React.FC = () => {
     </div>
   );
 };
+export default CampaignChart;

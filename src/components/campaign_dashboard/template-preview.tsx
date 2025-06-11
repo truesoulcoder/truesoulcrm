@@ -1,6 +1,7 @@
 import React from "react";
 import { Icon } from "@iconify/react";
 import { Tabs, Tab, Button, ScrollShadow } from "@heroui/react";
+import Image from "next/image";
 
 export const TemplatePreview: React.FC = () => {
   const [activeTemplate, setActiveTemplate] = React.useState("template1");
@@ -23,11 +24,27 @@ export const TemplatePreview: React.FC = () => {
           <p className="text-small font-medium">{currentTemplate.subject}</p>
           <p className="text-tiny text-default-500">From: marketing@example.com</p>
         </div>
-        <Button size="sm" variant="flat" startContent={<Icon icon="lucide:edit-3" size={16} />}>Edit</Button>
+        <Button 
+          size="sm" 
+          variant="flat" 
+          startContent={<Icon icon="lucide:edit-3" width={16} height={16} />}
+        >
+          Edit
+        </Button>
       </div>
       <ScrollShadow className="mt-3 flex-grow rounded-medium border border-divider">
-        <img src={currentTemplate.preview} alt="Email template preview" className="h-full w-full object-cover" />
+        <div className="relative h-full w-full">
+          <Image 
+            src={currentTemplate.preview} 
+            alt="Email template preview" 
+            fill
+            priority
+            className="object-cover"
+            sizes="(max-width: 768px) 100vw, 800px"
+          />
+        </div>
       </ScrollShadow>
     </div>
   );
 };
+export default TemplatePreview;
