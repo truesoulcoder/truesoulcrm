@@ -1,4 +1,5 @@
 import { heroui } from "@heroui/react";
+import { themes } from "./src/themes"; // Importing our new custom themes
 
 /** @type {import('tailwindcss').Config} */
 const config = {
@@ -14,7 +15,13 @@ const config = {
     extend: {},
   },
   darkMode: "class",
-  plugins: [heroui()],
+  plugins: [
+    heroui({
+      themes: {
+        ...themes, // Spread in all our custom themes
+      },
+    }),
+  ],
 };
 
 export default config;

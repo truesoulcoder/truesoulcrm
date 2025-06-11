@@ -13,10 +13,11 @@ import {
 } from '@tanstack/react-table';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { View } from 'lucide-react';
+import { Eye, ChevronUp, ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react'; // Using lucide for icons
 import type { Database, Tables } from '@/types/supabase';
 import LeadFormModal from '@/components/leads/LeadFormModal';
 import ColumnSelectorModal from './ColumnSelectorModal';
+import { Button, Input, Badge, Spinner, Card, CardHeader, CardBody, CardFooter } from '@heroui/react'; // Assuming these components exist
 
 // Create a new type for our view by extending the base property type
 type PropertyWithContacts = Tables<'properties'> & {
@@ -39,11 +40,17 @@ const allColumns = [
     header: 'Lead Status',
     cell: info => {
       const status = info.getValue();
-      const statusClass = {
-        'New Lead': 'badge-info', 'Contacted': 'badge-success', 'Qualified': 'badge-primary',
-        'Unqualified/Disqualified': 'badge-error', 'Closed - Converted/Customer': 'badge-success font-bold',
-      }[status] || 'badge-ghost';
-      return <span className={`badge ${statusClass} text-xs`}>{status}</span>;
+      let color: "primary" | "secondary" | "success" | "warning" | "danger" | "neutral" = "neutral";
+      // Basic mapping, HeroUI might have different color names or props
+      switch (status) {
+        case 'New Lead': color = "primary"; break;
+        case 'Contacted': color = "success"; break;
+        case 'Qualified': color = "primary"; break;
+        case 'Unqualified/Disqualified': color = "danger"; break;
+        case 'Closed - Converted/Customer': color = "success"; break;
+        default: color = "neutral";
+      }
+      return <Badge color={color} variant="solid" className="text-xs">{status}</Badge>;
     },
   }),
   columnHelper.accessor('contact_count', { header: '# Contacts' }),
@@ -78,7 +85,6 @@ const OmegaTable = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-      // Hide the more detailed contact columns by default
       contact_names: false,
       contact_emails: false,
       beds: false,
@@ -96,7 +102,6 @@ const OmegaTable = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch from the new 'properties_with_contacts' view
       const { data, error: fetchError } = await supabase.from('properties_with_contacts').select('*').order('created_at', { ascending: false });
       if (fetchError) throw fetchError;
       setLeads(data as PropertyWithContacts[] || []);
@@ -110,7 +115,6 @@ const OmegaTable = () => {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
-    // When the underlying tables change, refetch from the view
     const channel = supabase.channel('public-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts' }, () => fetchData())
@@ -134,71 +138,101 @@ const OmegaTable = () => {
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    //debugTable: true, // useful for development
   });
 
+  // HeroUI table styles are inferred or use Tailwind defaults
+  // Based on typical HeroUI structure, Card might be a good container
   return (
-    <div className="p-4 bg-base-100 rounded-lg shadow-xl">
-      <div className="flex justify-between items-center mb-4">
-        <input
-          type="text"
-          placeholder="Search leads..."
-          className="input input-bordered w-full max-w-xs"
-          value={globalFilter}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-        />
-        <div className="flex items-center gap-2">
-            <button className="btn btn-ghost" onClick={() => setIsColumnModalOpen(true)}>
-                <View size={16} />
-                Columns
-            </button>
-            <button className="btn btn-primary" onClick={() => handleOpenModal()}>
-              Add Lead
-            </button>
+    <Card className="shadow-lg rounded-lg">
+      <CardHeader className="p-4 sm:p-6"> {/* Adjusted padding */}
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+          <Input
+            type="text"
+            placeholder="Search leads..."
+            className="w-full sm:max-w-xs" // Removed input-bordered, relying on HeroUI Input styling
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setIsColumnModalOpen(true)}>
+                  <Eye size={16} className="mr-2" />
+                  Columns
+              </Button>
+              <Button color="primary" onClick={() => handleOpenModal()}>
+                Add Lead
+              </Button>
+          </div>
         </div>
-      </div>
+      </CardHeader>
 
-      <div className="overflow-x-auto">
-        {/* Added table-fixed to prevent overflow */}
-        <table className="table w-full table-fixed table-zebra">
-          <thead>
+      <CardBody className="overflow-x-auto p-0"> {/* Remove padding for table to span full width */}
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700"> {/* Basic table structure */}
+          <thead className="bg-gray-50 dark:bg-gray-800">
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map(header => (
-                  <th key={header.id} onClick={header.column.getToggleSortingHandler()} className="cursor-pointer select-none">
+                  <th 
+                    key={header.id} 
+                    onClick={header.column.getToggleSortingHandler()}
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer select-none"
+                  >
                     {flexRender(header.column.columnDef.header, header.getContext())}
-                    {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? null}
+                    {header.column.getIsSorted() === 'asc' && <ChevronUp size={14} className="inline ml-1" />}
+                    {header.column.getIsSorted() === 'desc' && <ChevronDown size={14} className="inline ml-1" />}
                   </th>
                 ))}
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
             {isLoading ? (
-              <tr><td colSpan={allColumns.length} className="text-center py-10"><span className="loading loading-spinner"></span></td></tr>
+              <tr><td colSpan={allColumns.length} className="text-center py-10"><Spinner size="lg" /></td></tr>
             ) : table.getRowModel().rows.length === 0 ? (
-              <tr><td colSpan={allColumns.length} className="text-center py-10">No leads found.</td></tr>
+              <tr><td colSpan={allColumns.length} className="text-center py-10 text-gray-500 dark:text-gray-400">No leads found.</td></tr>
             ) : (
               table.getRowModel().rows.map(row => (
-                <tr key={row.original.property_id} className="hover" onClick={() => handleOpenModal(row.original)}>
+                <tr 
+                  key={row.original.property_id} 
+                  className="hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" // Generic hover
+                  onClick={() => handleOpenModal(row.original)}
+                >
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    <td key={cell.id} className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-200">
+                      {/* Removed 'truncate' from td, apply it in cell render if needed */}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
                   ))}
                 </tr>
               ))
             )}
           </tbody>
         </table>
-      </div>
+      </CardBody>
 
-      <div className="flex justify-between items-center mt-4">
-        <span className="text-sm">
+      <CardFooter className="p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <span className="text-sm text-gray-700 dark:text-gray-300">
           Page{' '}<strong>{table.getState().pagination.pageIndex + 1} of {table.getPageCount()}</strong>
         </span>
-        <div className="btn-group">
-          <button className="btn" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>«</button>
-          <button className="btn" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>»</button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => table.previousPage()} 
+            disabled={!table.getCanPreviousPage()}
+            aria-label="Previous Page"
+          >
+            <ChevronsLeft size={16} />
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => table.nextPage()} 
+            disabled={!table.getCanNextPage()}
+            aria-label="Next Page"
+          >
+            <ChevronsRight size={16} />
+          </Button>
         </div>
-      </div>
+      </CardFooter>
 
       {isModalOpen && (
           <LeadFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} property={selectedProperty || undefined} />
@@ -211,7 +245,7 @@ const OmegaTable = () => {
         currentVisibility={columnVisibility}
         onSave={setColumnVisibility}
       />
-    </div>
+    </Card>
   );
 };
 

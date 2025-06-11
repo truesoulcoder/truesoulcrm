@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@/components/ui/modal'; // Adjust path if necessary
+import { Modal } from '@/components/ui/modal'; // Custom Modal wrapper
+import { Button, Checkbox } from '@heroui/react'; // HeroUI components
 
 interface ColumnSelectorModalProps {
   isOpen: boolean;
@@ -18,54 +19,63 @@ const ColumnSelectorModal: React.FC<ColumnSelectorModalProps> = ({
 }) => {
   const [tempVisibility, setTempVisibility] = useState<{ [key: string]: boolean }>(currentVisibility);
 
-  // Effect to update tempVisibility when currentVisibility prop changes (e.g., modal reopened)
   useEffect(() => {
     setTempVisibility(currentVisibility);
-  }, [currentVisibility, isOpen]); // Also depend on isOpen to reset when modal re-opens
+  }, [currentVisibility, isOpen]);
 
-  const handleCheckboxChange = (columnKey: string) => {
+  const handleCheckboxChange = (columnKey: string, checked: boolean) => {
     setTempVisibility(prev => ({
       ...prev,
-      [columnKey]: !prev[columnKey],
+      [columnKey]: checked,
     }));
   };
 
   const handleSave = () => {
-    console.log('[ColumnSelectorModal] Saving tempVisibility:', tempVisibility); // Added console log
     onSave(tempVisibility);
-    onClose(); // Or onSave could handle closing if preferred
-  };
-
-  const handleCancel = () => {
-    setTempVisibility(currentVisibility); // Reset changes
     onClose();
   };
 
+  const handleCancel = () => {
+    setTempVisibility(currentVisibility); 
+    onClose();
+  };
+
+  // The Modal component from @/components/ui/modal now needs to provide ModalHeader, ModalBody, ModalFooter
+  // or allow content to be structured accordingly.
+  // For this refactor, we assume Modal can take children and we structure them.
+  // The title prop of Modal is used.
   return (
     <Modal isOpen={isOpen} onClose={handleCancel} title="Select Columns to Display">
-      <div className="space-y-4">
-        {allColumns.map(col => (
-          <div key={col.key} className="flex items-center">
-            <input
-              type="checkbox"
-              id={`col-checkbox-${col.key}`}
-              className="checkbox checkbox-primary"
-              checked={tempVisibility[col.key] ?? false} // Default to false if key somehow missing
-              onChange={() => handleCheckboxChange(col.key)}
-            />
-            <label htmlFor={`col-checkbox-${col.key}`} className="ml-2 cursor-pointer">
-              {col.label}
-            </label>
-          </div>
-        ))}
+      {/* ModalBody equivalent */}
+      <div className="p-4 sm:p-6"> {/* Added padding assuming ModalBody would have it */}
+        <div className="space-y-3"> {/* Adjusted spacing */}
+          {allColumns.map(col => (
+            <div key={col.key} className="flex items-center">
+              <Checkbox
+                id={`col-checkbox-${col.key}`}
+                isSelected={tempVisibility[col.key] ?? false}
+                onValueChange={(checked) => handleCheckboxChange(col.key, checked)} // HeroUI Checkbox might use onValueChange
+                color="primary" // Assuming HeroUI Checkbox takes a color prop
+              >
+                {/* HeroUI Checkbox might take children as label, or have a label prop */}
+                {/* For now, using a separate label element for compatibility */}
+              </Checkbox>
+              <label htmlFor={`col-checkbox-${col.key}`} className="ml-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                {col.label}
+              </label>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="modal-action mt-6">
-        <button className="btn btn-ghost" onClick={handleCancel}>
+      
+      {/* ModalFooter equivalent */}
+      <div className="flex justify-end items-center gap-3 p-4 border-t border-gray-200 dark:border-gray-700">
+        <Button variant="outline" onClick={handleCancel}> {/* Changed ghost to outline for better visibility */}
           Cancel
-        </button>
-        <button className="btn btn-primary" onClick={handleSave}>
+        </Button>
+        <Button color="primary" onClick={handleSave}>
           Save
-        </button>
+        </Button>
       </div>
     </Modal>
   );

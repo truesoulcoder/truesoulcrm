@@ -1,39 +1,49 @@
 'use client';
 
-import { type ReactNode, useState, useRef, useEffect } from 'react';
-
+import { type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { 
+    Dropdown as HeroDropdown, 
+    DropdownTrigger, 
+    DropdownMenu, 
+    DropdownItem as HeroDropdownItem, 
+    DropdownSection,
+    // Assuming HeroUI might have a specific divider or DropdownItem can act as one.
+    // No specific Divider component imported for now, will use DropdownItem with a prop or a custom element.
+    type DropdownProps as HeroDropdownProps,
+    type DropdownItemProps as HeroDropdownItemProps,
+    type DropdownMenuProps as HeroDropdownMenuProps,
+} from '@heroui/react'; 
 
-type DropdownPosition = 'top' | 'bottom' | 'left' | 'right';
-type DropdownAlign = 'start' | 'center' | 'end';
-type DropdownHover = boolean | 'click' | 'hover';
+// Types from the old component
+type OldDropdownPosition = 'top' | 'bottom' | 'left' | 'right';
+type OldDropdownAlign = 'start' | 'center' | 'end';
+type OldDropdownHover = boolean | 'click' | 'hover';
 
-interface DropdownProps {
-  /** The trigger element that opens the dropdown */
+interface CustomDropdownProps {
   trigger: ReactNode;
-  /** Dropdown menu items */
   children: ReactNode;
-  /** Position of the dropdown menu */
-  position?: DropdownPosition;
-  /** Alignment of the dropdown menu */
-  align?: DropdownAlign;
-  /** Whether to show dropdown on hover instead of click */
-  hover?: DropdownHover;
-  /** Additional class name for the dropdown */
+  position?: OldDropdownPosition;
+  align?: OldDropdownAlign;
+  hover?: OldDropdownHover;
   className?: string;
-  /** Additional class name for the dropdown content */
   contentClassName?: string;
-  /** Whether the dropdown is open by default */
-  defaultOpen?: boolean;
-  /** Callback when dropdown open state changes */
-  onOpenChange?: (isOpen: boolean) => void;
+  defaultOpen?: boolean; // Will be mapped to isOpen if HeroDropdown is controlled
+  onOpenChange?: (isOpen: boolean) => void; // Will be mapped to onOpenChange
+  isOpen?: boolean; // For controlled component
 }
 
-/**
- * A flexible dropdown component that supports different triggers and positions.
- * Uses DaisyUI dropdown classes under the hood.
- */
-export function Dropdown({
+// Helper to map old position/align to HeroUI placement
+const mapPlacement = (position: OldDropdownPosition = 'bottom', align: OldDropdownAlign = 'start'): HeroDropdownProps['placement'] => {
+  if (position === 'left' || position === 'right') {
+    return `${position}-${align === 'center' ? 'center' : align === 'start' ? 'start' : 'end'}` as HeroDropdownProps['placement'];
+  }
+  // For top/bottom, HeroUI might use 'center' for 'middle', 'start' for 'left', 'end' for 'right'
+  if (align === 'center') return `${position}-center` as HeroDropdownProps['placement']; // Or just position if center is default for that axis
+  return `${position}-${align}` as HeroDropdownProps['placement'];
+};
+
+function Root({
   trigger,
   children,
   position = 'bottom',
@@ -41,98 +51,60 @@ export function Dropdown({
   hover = 'click',
   className = '',
   contentClassName = '',
-  defaultOpen = false,
+  defaultOpen, // Used if isOpen is not provided, for uncontrolled mode
   onOpenChange,
-}: DropdownProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  isOpen, // For controlled mode
+}: CustomDropdownProps) {
+  
+  if (hover === 'hover') {
+    console.warn("Dropdown: Hover functionality is deprecated. Please use click activation.");
+  }
 
-  // Handle click outside to close
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        onOpenChange?.(false);
-      }
-    };
+  const placement = mapPlacement(position, align);
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen, onOpenChange]);
-
-  const toggleDropdown = () => {
-    if (hover === 'click') {
-      const newState = !isOpen;
-      setIsOpen(newState);
-      onOpenChange?.(newState);
-    }
-  };
-
-  // Generate DaisyUI dropdown classes
-  const dropdownClasses = [
-    'dropdown',
-    `dropdown-${position}`,
-    `dropdown-${align}`,
-    { 'dropdown-hover': hover === 'hover' },
-    { 'dropdown-open': isOpen },
-    className,
-  ];
-
-  const contentClasses = [
-    'dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52',
-    contentClassName,
-  ];
-
+  // HeroDropdown can be controlled or uncontrolled.
+  // If `isOpen` is provided, it's controlled. Otherwise, use `defaultOpen`.
+  const controlledProps: Partial<HeroDropdownProps> = {};
+  if (isOpen !== undefined) {
+    controlledProps.isOpen = isOpen;
+  } else if (defaultOpen !== undefined) {
+    controlledProps.defaultOpen = defaultOpen;
+  }
+  
   return (
-    <div 
-      ref={dropdownRef}
-      className={cn(dropdownClasses)}
-      onMouseEnter={hover === 'hover' ? () => setIsOpen(true) : undefined}
-      onMouseLeave={hover === 'hover' ? () => setIsOpen(false) : undefined}
+    <HeroDropdown 
+      placement={placement} 
+      className={cn(className)}
+      onOpenChange={onOpenChange}
+      {...controlledProps}
     >
-      <div 
-        tabIndex={0} 
-        role="button" 
-        className="w-full"
-        onClick={toggleDropdown}
-      >
+      <DropdownTrigger>
+        {/* The original component had a div with w-full here.
+            The trigger content itself should handle its display. */}
         {trigger}
-      </div>
-      
-      {isOpen && (
-        <div 
-          className={cn(contentClasses)}
-          tabIndex={0}
-        >
-          {children}
-        </div>
-      )}
-    </div>
+      </DropdownTrigger>
+      <DropdownMenu 
+        aria-label="Dropdown actions" 
+        className={cn(contentClassName)} // Apply contentClassName to DropdownMenu
+        // HeroUI DropdownMenu might have its own default styling for shadow, bg, rounded, width.
+        // The old classes 'menu p-2 shadow bg-base-100 rounded-box w-52' are removed.
+      >
+        {children}
+      </DropdownMenu>
+    </HeroDropdown>
   );
 }
 
-/**
- * Dropdown item component
- */
-interface DropdownItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
-  /** Whether the item is active */
-  active?: boolean;
-  /** Whether the item is disabled */
+interface CustomDropdownItemProps extends React.HTMLAttributes<HTMLLIElement> { // Keep HTMLAttributes for ...props compatibility
+  active?: boolean; // Map to isSelected or rely on className
   disabled?: boolean;
-  /** Optional icon to display before the text */
   icon?: ReactNode;
-  /** Optional badge to display after the text */
   badge?: ReactNode;
-  /** Optional submenu items */
-  submenu?: ReactNode;
+  submenu?: ReactNode; // Submenus are complex, will be ignored for now with a warning
+  onClick?: () => void; // Ensure onClick is passed
 }
 
-export function DropdownItem({
+function Item({
   children,
   className = '',
   active = false,
@@ -140,53 +112,68 @@ export function DropdownItem({
   icon,
   badge,
   submenu,
-  ...props
-}: DropdownItemProps) {
-  const itemClasses = [
-    'flex items-center justify-between gap-2',
-    { active },
-    { disabled },
-    className,
-  ];
+  onClick,
+  ...props // Pass rest of the props like `key`
+}: CustomDropdownItemProps) {
 
+  if (submenu) {
+    console.warn("DropdownItem: Submenu functionality is not directly supported in this refactor. Consider using nested Dropdowns if HeroUI supports them, or redesigning the interaction.");
+  }
+  
+  // Assuming HeroUI DropdownItem uses props like isDisabled, startContent, endContent
+  // `active` state might be handled by `isSelected` or custom class if needed.
+  // For now, active is not directly mapped unless HeroDropdownItem has `isSelected`.
   return (
-    <li {...props}>
-      <a className={cn(itemClasses)}>
-        <div className="flex items-center gap-2">
-          {icon && <span className="text-lg">{icon}</span>}
-          <span>{children}</span>
-        </div>
-        {badge && <span className="badge">{badge}</span>}
-      </a>
-      {submenu && (
-        <ul className="p-2 bg-base-100 rounded-box">
-          {submenu}
-        </ul>
-      )}
-    </li>
+    <HeroDropdownItem
+      isDisabled={disabled}
+      startContent={icon}
+      endContent={badge}
+      // isSelected={active} // If HeroUI has an isSelected prop
+      className={cn(className, { 'font-semibold': active })} // Example: make active items bold
+      onClick={onClick}
+      textValue={typeof children === 'string' ? children : undefined} // For accessibility if HeroUI needs it
+      {...props} 
+    >
+      {children}
+    </HeroDropdownItem>
   );
 }
 
-/**
- * Dropdown divider component
- */
-export function DropdownDivider() {
-  return <div className="divider my-1"></div>;
+function Divider() {
+  // HeroUI might have a specific DropdownDivider component or allow an item to be a divider.
+  // Using a simple hr as a fallback.
+  // A more robust solution would be <HeroDropdownItem isDivider /> if supported,
+  // or <DropdownSection><hr /></DropdownSection>
+  return <hr className="my-1 border-gray-200 dark:border-gray-700" />; 
+  // Alternatively, if DropdownSection can be empty and just provide spacing/line:
+  // return <DropdownSection className="my-1 border-t border-gray-200 dark:border-gray-700" />;
 }
 
-/**
- * Dropdown header component
- */
-export function DropdownHeader({ children }: { children: ReactNode }) {
-  return <li className="menu-title">{children}</li>;
+function Header({ children }: { children: ReactNode }) {
+  // Use DropdownSection for headers if it supports rendering a title or children directly as a header.
+  // Or, style a non-interactive DropdownItem.
+  // For simplicity, using DropdownSection with a styled h3.
+  // This assumes DropdownSection renders its children.
+  return (
+    <DropdownSection>
+      {/* 
+        If DropdownSection has a title prop: <DropdownSection title={children} /> 
+        Otherwise, render children within it, styled appropriately.
+        The old class was 'menu-title'.
+      */}
+      <h3 className="px-2 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
+        {children}
+      </h3>
+    </DropdownSection>
+  );
 }
 
-// Re-export all components
 const DropdownNamespace = {
-  Root: Dropdown, // Renaming Dropdown to DropdownNamespace.Root to avoid naming conflict
-  Item: DropdownItem,
-  Divider: DropdownDivider,
-  Header: DropdownHeader,
+  Root: Root,
+  Item: Item,
+  Divider: Divider,
+  Header: Header,
 };
 
 export default DropdownNamespace;
+export type { CustomDropdownProps, CustomDropdownItemProps };
